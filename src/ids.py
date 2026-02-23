@@ -18,6 +18,7 @@ from models import Alert
 from rules.port_scan import PortScanDetector
 from rules.icmp_flood import ICMPFloodDetector
 from rules.syn_burst import SYNBurstDetector
+from rules.ssh_bruteforce import SSHBruteForceDetector
 
 
 # -----------------------
@@ -107,6 +108,7 @@ def handle_packet(
     portscan: PortScanDetector,
     icmp_flood: ICMPFloodDetector,
     syn_burst: SYNBurstDetector,
+    ssh_bf: SSHBruteForceDetector,
     logger: JSONLLogger,
 ) -> None:
     stats["total_packets"] += 1
@@ -130,6 +132,7 @@ def handle_packet(
         tcp_alerts: List[Alert] = []
         tcp_alerts += portscan.process(ts, src, dst, dport)
         tcp_alerts += syn_burst.process(ts, src, dst, flags)
+        tcp_alerts += ssh_bf.process(ts, src, dst, dport, flags)
 
     # enrich for dedupe/fingerprint
         for a in tcp_alerts:
@@ -160,6 +163,7 @@ def run_live(
     portscan: PortScanDetector,
     icmp_flood: ICMPFloodDetector,
     syn_burst: SYNBurstDetector,
+    ssh_bf: SSHBruteForceDetector,
     logger: JSONLLogger,
 ) -> None:
     if interface:
@@ -169,7 +173,7 @@ def run_live(
 
     def on_packet(pkt):
         try:
-            handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, logger)
+            handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger)
         except Exception as e:
             print(f"[!] Packet handler error: {e}", file=sys.stderr)
             traceback.print_exc()
@@ -222,6 +226,9 @@ def main() -> int:
     ap.add_argument("--syn-window", type=int, default=5, help="SYN burst window seconds")
     ap.add_argument("--syn-threshold", type=int, default=20, help="SYN burst SYN threshold")
 
+    ap.add_argument("--ssh-window", type=int, default=30, help="SSH brute-force window seconds")
+    ap.add_argument("--ssh-threshold", type=int, default=12, help="SSH brute-force attempt threshold")
+
     args = ap.parse_args()
     cfg = load_config(args.config)
 
@@ -263,11 +270,21 @@ def main() -> int:
     )
     syn_burst.thresholds = syn_thresholds
 
+    ssh_cfg = cfg.get("ssh_bruteforce", {})
+    ssh_thresholds = pick_thresholds(ssh_cfg.get("thresholds", {}), args.ssh_threshold)
+
+    ssh_bf = SSHBruteForceDetector(
+        window_s = _int(ssh_cfg.get("window_s"), args.ssh_window),
+        threshold_hits = ssh_thresholds["medium"],
+    )
+    ssh_bf.thresholds = ssh_thresholds
+    
     # Professional: print effective config at startup
     print(f"[CFG] log_path={Path(log_path).resolve()}")
     print(f"[CFG] port_scan window_s={portscan.window_s} thresholds={portscan.thresholds}")
     print(f"[CFG] icmp_flood window_s = {icmp_flood.window_s} thresholds = {icmp_flood.thresholds}")
     print(f"[CFG] syn_burst window_s={syn_burst.window_s} thresholds={syn_burst.thresholds}")
+    print(f"[CFG] ssh_bruteforce window_s={ssh_bf.window_s} thresholds={ssh_bf.thresholds}")
 
     stats = {
         "total_packets": 0,
@@ -281,7 +298,7 @@ def main() -> int:
 
     try:
         if args.live:
-            run_live(args.iface, stats, portscan, icmp_flood, syn_burst, logger)
+            run_live(args.iface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger)
         else:
             if not args.pcap:
                 print("[!] Choose one: --live OR --pcap <file>")

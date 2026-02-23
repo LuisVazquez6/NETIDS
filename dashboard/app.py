@@ -183,6 +183,7 @@ RULE_WEIGHTS = {
     "PORT_SCAN_SUSPECTED": 25,
     "SYN_BURST_SUSPECTED": 15,
     "ICMP_FLOOD_SUSPECTED": 10,
+    "SSH_BRUTE_FORCE_SUSPECTED": 20,
 }
 
 SEV_MULT = {
@@ -239,11 +240,11 @@ if selected_actor != "(ALL)":
             else "-"
         )
         summary_text = (
-            f"Incident Summary - {selected_actor}\n\n""
+            f"Incident Summary - {selected_actor}\n"
             f"Risk Score: {row['risk_score']:.1f}\n"
-            f"Max Severity: {row['max_sev']}\n
-            f"Alerts: {int(row['alerts'])}\n
-            f"Top Rule: {row['top_rule']}\n
+            f"Max Severity: {row['max_sev']}\n"
+            f"Alerts: {int(row['alerts'])}\n"
+            f"Top Rule: {row['top_rule']}\n"
             f"Last Seen: {last_seen_str}"
         )
         st.info(summary_text)

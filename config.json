@@ -10,7 +10,7 @@
         }
     },
 
-    "icmp_sweep" : {
+    "icmp_floodp" : {
         "window_s": 10,
         "thresholds": {
             "low": 2,
@@ -25,6 +25,14 @@
             "low": 5,
             "medium": 20,
             "high": 60
+        }
+    },
+    "ssh_bruteforce": {
+        "window_s": 30,
+        "thresholds": {
+            "low": 5,
+            "medium": 12,
+            "high": 30
         }
     }
 }
