@@ -1,0 +1,25 @@
+## Requirements
+
+- Python 3.10+
+- Linux(Ubuntu / kali recommedned)
+- Root privileges 
+- Scapy
+
+
+## Virtual Environment Setup
+
+- create
+python3 -m venv .venv
+
+- activate 
+source .venv/bin/activate
+
+## recommended
+pip install --upgrade pip
+
+- install dependecies
+pip install -r Requirements.txt
+
+- Run IDS
+sudo -E .venv/bin/python src/ids.py --live --iface enp0s3
+

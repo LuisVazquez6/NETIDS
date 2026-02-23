@@ -1,0 +1,30 @@
+{
+    "log_path" : "logs/alerts.jsonl",
+
+    "port_scan":{
+        "window_s": 15,
+        "thresholds": {
+            "low": 10,
+            "medium": 20,
+            "high": 40
+        }
+    },
+
+    "icmp_sweep" : {
+        "window_s": 10,
+        "thresholds": {
+            "low": 2,
+            "medium": 2,
+            "high": 5
+        }
+    },
+
+    "syn_burst": {
+        "window_s": 5,
+        "thresholds": {
+            "low": 5,
+            "medium": 20,
+            "high": 60
+        }
+    }
+}
