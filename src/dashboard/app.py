@@ -15,8 +15,8 @@ import plotly.express as px
 # -----------------------------
 # Paths
 # -----------------------------
-ROOT = Path(__file__).resolve().parents[1]          # netids/
-ALERTS_PATH = ROOT / "logs" / "alerts.jsonl"        # netids/logs/alerts.jsonl
+ROOT = Path(__file__).resolve().parents[2]          # netids/
+ALERTS_PATH = ROOT/ "logs" / "alerts.jsonl"        # netids/logs/alerts.jsonl
 
 
 # -----------------------------

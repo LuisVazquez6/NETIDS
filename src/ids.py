@@ -11,14 +11,23 @@ import hashlib
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
-
 from scapy.all import PcapReader, IP, TCP, UDP, ICMP, sniff, conf  # type: ignore
-
-from models import Alert
 from rules.port_scan import PortScanDetector
 from rules.icmp_flood import ICMPFloodDetector
 from rules.syn_burst import SYNBurstDetector
 from rules.ssh_bruteforce import SSHBruteForceDetector
+from enrichment.enrich_ip import enrich_alert_dict
+from correlation.incident_manager import IncidentManager
+from response.notifier import Notifier
+from models.alerts import Alert
+
+import os
+import argparse
+import json
+import sys
+import time
+import traceback
+import hashlib
 
 
 # -----------------------
@@ -55,8 +64,11 @@ class JSONLLogger:
         self.out_path = out_path
 
     def write(self, alert: Alert) -> None:
-        with self.out_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(asdict(alert)) + "\n")
+        self.write_dict(asdict(alert))
+
+    def write_dict(self, obj: Dict[str, Any]) -> None:
+        with self.out_path.open("a", encoding = "utf-8") as f:
+            f.write(json.dumps(obj) + "\n")
             f.flush()
             os.fsync(f.fileno())
 
@@ -90,7 +102,7 @@ def iter_packets(pcap_path: Path):
             yield pkt
 
 
-def emit_alerts(alerts: List[Alert], logger: JSONLLogger) -> None:
+def emit_alerts(alerts: List[Alert], logger: JSONLLogger, incident_mgr: IncidentManager, notifier: Notifier) -> None:
     for a in alerts:
         if hasattr(a, "event_id") and getattr(a, "event_id") is None:
             a.event_id = fingerprint(a)  # type: ignore[attr-defined]
@@ -98,8 +110,17 @@ def emit_alerts(alerts: List[Alert], logger: JSONLLogger) -> None:
         if not should_emit(a):
             continue
 
+        a_dict = asdict(a)
+        a_dict = enrich_alert_dict(a_dict)
+
+        incident, _is_new = incident_mgr.ingest(a_dict)
+        inc_dict = incident.to_dict()
+
+        if notifier.should_notify(inc_dict) and inc_dict.get("severity") in ("MEDIUM", "HIGH"):
+            notifier.notify_console(inc_dict)
+
         print(f"[ALERT] {a.alert_type} src={a.src_ip} severity={a.severity} details={a.details}")
-        logger.write(a)
+        logger.write_dict(a_dict)
 
 
 def handle_packet(
@@ -110,6 +131,8 @@ def handle_packet(
     syn_burst: SYNBurstDetector,
     ssh_bf: SSHBruteForceDetector,
     logger: JSONLLogger,
+    incident_mgr: IncidentManager,
+    notifier: Notifier,
 ) -> None:
     stats["total_packets"] += 1
 
@@ -130,9 +153,18 @@ def handle_packet(
         flags = int(pkt[TCP].flags)
 
         tcp_alerts: List[Alert] = []
-        tcp_alerts += portscan.process(ts, src, dst, dport)
+        is_syn = (flags & 0x02) != 0
+        is_ack = (flags & 0x10) != 0
+
+        if is_syn and not is_ack:
+            tcp_alerts += portscan.process(ts, src, dst, dport)
+            tcp_alerts += ssh_bf.process(ts, src, dst, dport, flags)
+
         tcp_alerts += syn_burst.process(ts, src, dst, flags)
-        tcp_alerts += ssh_bf.process(ts, src, dst, dport, flags)
+
+        ##tcp_alerts += portscan.process(ts, src, dst, dport)
+        ##tcp_alerts += syn_burst.process(ts, src, dst, flags)
+        ##tcp_alerts += ssh_bf.process(ts, src, dst, dport, flags)
 
     # enrich for dedupe/fingerprint
         for a in tcp_alerts:
@@ -140,7 +172,7 @@ def handle_packet(
             setattr(a, "dst_port", dport)
             setattr(a, "proto", "TCP")
 
-        emit_alerts(tcp_alerts, logger)
+        emit_alerts(tcp_alerts, logger, incident_mgr, notifier)
 
     elif UDP in pkt:
         stats["udp_packets"] += 1
@@ -154,7 +186,7 @@ def handle_packet(
                 setattr(a, "dst_port", None)
                 setattr(a, "proto", "ICMP")
 
-            emit_alerts(icmp_alerts, logger)
+            emit_alerts(icmp_alerts, logger, incident_mgr, notifier)
 
 
 def run_live(
@@ -165,6 +197,8 @@ def run_live(
     syn_burst: SYNBurstDetector,
     ssh_bf: SSHBruteForceDetector,
     logger: JSONLLogger,
+    incident_mgr: IncidentManager,
+    notifier: Notifier,
 ) -> None:
     if interface:
         print(f"[*] Live capture on interface: {interface}")
@@ -173,7 +207,7 @@ def run_live(
 
     def on_packet(pkt):
         try:
-            handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger)
+            handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier)
         except Exception as e:
             print(f"[!] Packet handler error: {e}", file=sys.stderr)
             traceback.print_exc()
@@ -231,6 +265,9 @@ def main() -> int:
 
     args = ap.parse_args()
     cfg = load_config(args.config)
+
+    incident_mgr = IncidentManager(window_s=120, max_idle_s=300)
+    notifier = Notifier(cooldown_s=20)
 
     # Logging Path (config overrides CLI)
     ROOT = Path(__file__).resolve().parents[1]  # src/ids.py -> netids/
@@ -298,7 +335,7 @@ def main() -> int:
 
     try:
         if args.live:
-            run_live(args.iface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger)
+            run_live(args.iface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier)
         else:
             if not args.pcap:
                 print("[!] Choose one: --live OR --pcap <file>")
@@ -310,7 +347,7 @@ def main() -> int:
 
             print(f"[*] Reading PCAP: {pcap_path}")
             for pkt in iter_packets(pcap_path):
-                handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, logger)
+                handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier)
 
     except KeyboardInterrupt:
         print("\n[*] Stopped.")

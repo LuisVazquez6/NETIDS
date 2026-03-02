@@ -14,17 +14,17 @@
         "window_s": 10,
         "thresholds": {
             "low": 2,
-            "medium": 2,
-            "high": 5
+            "medium": 5,
+            "high": 15
         }
     },
 
     "syn_burst": {
-        "window_s": 5,
+        "window_s": 8,
         "thresholds": {
             "low": 5,
-            "medium": 20,
-            "high": 60
+            "medium": 10,
+            "high": 13
         }
     },
     "ssh_bruteforce": {

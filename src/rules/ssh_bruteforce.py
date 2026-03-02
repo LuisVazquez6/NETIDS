@@ -1,19 +1,29 @@
+# src/rules/ssh_bruteforce.py
+from __future__ import annotations
+
 from collections import defaultdict, deque
 from typing import Deque, Dict, List, Optional
 
-from models import Alert
+from models.alerts import Alert
+from utils.severity import classify, normalize_thresholds
 
 
 class SSHBruteForceDetector:
     """
-    Detects potential SSH brute-force attacks by monitoring repeated NEW SSH connection attempts
-    (SYN packets to port 22 without ACK) from the same source IP within a specified time window.
+    Detects potential SSH brute-force by counting SYN-only packets to port 22
+    from the same source within a time window.
+
+    NOTE: This is a network-level heuristic. True "failed logins" would require
+    host logs, but this is SOC-valid for traffic-based detection in a lab.
     """
 
     def __init__(self, window_s: int = 30, threshold_hits: int = 12, thresholds: Optional[dict] = None):
         self.window_s = window_s
+        # kept for compatibility / debugging
         self.threshold_hits = threshold_hits
         self.thresholds = thresholds or {}
+
+        # src_ip -> deque[timestamps]
         self.events: Dict[str, Deque[float]] = defaultdict(deque)
 
     def process(self, ts: float, src_ip: str, dst_ip: str, dst_port: int, flags: int) -> List[Alert]:
@@ -21,11 +31,10 @@ class SSHBruteForceDetector:
         if dst_port != 22:
             return []
 
-        # SYN without ACK is a decent "new attempt" signal
-        # scapy flags bitmask: SYN=0x02, ACK=0x10
+        # Only count SYN without ACK as attempt-like
         is_syn = (flags & 0x02) != 0
         is_ack = (flags & 0x10) != 0
-        if (not is_syn) or is_ack:
+        if not (is_syn and not is_ack):
             return []
 
         dq = self.events[src_ip]
@@ -35,34 +44,40 @@ class SSHBruteForceDetector:
         while dq and dq[0] < cutoff:
             dq.popleft()
 
-        count = len(dq)
+        ##print(f"[SSHDBG] src={src_ip} dst_port={dst_port} flags={flags} attempts={len(dq)}")
 
-        if count >= self.threshold_hits:
-            # severity tiering
-            if self.thresholds:
-                if count >= self.thresholds.get("high", 9999):
-                    severity = "HIGH"
-                elif count >= self.thresholds.get("medium", self.threshold_hits):
-                    severity = "MEDIUM"
-                else:
-                    severity = "LOW"
-            else:
-                severity = "MEDIUM"
+        attempts = len(dq)
 
-            alert = Alert(
-                ts=ts,
-                alert_type="SSH_BRUTE_FORCE_SUSPECTED",
-                severity=severity,
-                src_ip=src_ip,
-                details={
-                    "window_s": self.window_s,
-                    "threshold_hits": self.threshold_hits,
-                    "attempts": count,
-                    "dst_ip": dst_ip,
-                    "note": "Heuristic: multiple new SYN attempts to port 22 from same source within short time window.",
+        low_th = int(self.thresholds.get("low", max(1, self.threshold_hits // 2)))
+        if attempts < low_th:
+            return []
+
+        default_low = low_th
+        default_medium = int(self.thresholds.get("medium", self.threshold_hits))
+        default_high = int(self.thresholds.get("high", default_medium * 3))
+
+        thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
+        severity = classify(attempts, thresholds)
+
+        # optional: suppress LOW spam (like your current syn_burst behavior)
+        if severity == "LOW":
+            return []
+
+        alert = Alert(
+            ts=ts,
+            alert_type="SSH_BRUTEFORCE_SUSPECTED",
+            severity=severity,
+            src_ip=src_ip,
+            details={
+                "window_s": self.window_s,
+                "attempts": attempts,
+                "dst_port": 22,
+                "thresholds": {
+                    "low": int(thresholds.get("low", low_th)),
+                    "medium": int(thresholds.get("medium", self.threshold_hits)),
+                    "high": int(thresholds.get("high", int(thresholds.get("medium", self.threshold_hits)) * 3)),
                 },
-            )
-            dq.clear()
-            return [alert]
+            },
+        )
 
-        return []
+        return [alert]
