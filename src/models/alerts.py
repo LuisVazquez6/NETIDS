@@ -10,6 +10,8 @@ class Alert:
     src_ip: str
     details :dict[str, Any] = field(default_factory=dict)
 
+    mitre_technique: Optional[str] = None
+
     dst_ip: Optional[str] = None
     proto: Optional[str] = None
     dst_port: Optional[int] = None

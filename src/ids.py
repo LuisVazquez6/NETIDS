@@ -20,6 +20,7 @@ from enrichment.enrich_ip import enrich_alert_dict
 from correlation.incident_manager import IncidentManager
 from response.notifier import Notifier
 from models.alerts import Alert
+from enrichment.mitre_mapper import map_mitre
 
 import os
 import argparse
@@ -111,15 +112,17 @@ def emit_alerts(alerts: List[Alert], logger: JSONLLogger, incident_mgr: Incident
             continue
 
         a_dict = asdict(a)
+        a_dict["mitre_technique"] = map_mitre(a.alert_type)
         a_dict = enrich_alert_dict(a_dict)
 
         incident, _is_new = incident_mgr.ingest(a_dict)
         inc_dict = incident.to_dict()
 
-        if notifier.should_notify(inc_dict) and inc_dict.get("severity") in ("MEDIUM", "HIGH"):
+        if notifier.should_notify(inc_dict):
             notifier.notify_console(inc_dict)
+            notifier.notify_webhook(inc_dict)
 
-        print(f"[ALERT] {a.alert_type} src={a.src_ip} severity={a.severity} details={a.details}")
+        print(f"[ALERT] {a.alert_type} ({a_dict['mitre_technique']}) src={a.src_ip} severity={a.severity}")
         logger.write_dict(a_dict)
 
 
