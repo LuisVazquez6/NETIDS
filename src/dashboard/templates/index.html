@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetIDS — SOC Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0d0d1a;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', monospace;
+    font-size: 13px;
+  }
+
+  /* ---- scan line overlay ---- */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.06) 2px,
+      rgba(0,0,0,0.06) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ---- header ---- */
+  header {
+    background: #0a0a14;
+    border-bottom: 1px solid #1e2a4a;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  header h1 {
+    font-size: 18px;
+    color: #00d4ff;
+    letter-spacing: 2px;
+    animation: glitch 6s infinite;
+    position: relative;
+    display: inline-block;
+  }
+  header h1 span { color: #fff; }
+
+  @keyframes glitch {
+    0%, 88%, 100% { text-shadow: none; transform: none; }
+    90% { text-shadow: -2px 0 #ff4757, 2px 0 #00d4ff; transform: skewX(-2deg); }
+    92% { text-shadow: 2px 0 #ff4757, -2px 0 #00d4ff; transform: skewX(2deg); }
+    94% { text-shadow: none; transform: none; }
+    96% { text-shadow: -1px 0 #00d4ff; transform: skewX(-1deg); }
+    98% { text-shadow: none; transform: none; }
+  }
+
+  #live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #888;
+  }
+  .pulse {
+    width: 8px; height: 8px;
+    background: #00ff88;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
+    50%       { opacity: 0.6; transform: scale(0.85); box-shadow: 0 0 0 6px rgba(0,255,136,0); }
+  }
+  #last-update { color: #555; font-size: 10px; }
+  .logout-btn {
+    background: none;
+    border: 1px solid #1e2a4a;
+    color: #555;
+    font-size: 10px;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    text-decoration: none;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .logout-btn:hover { border-color: #ff4757; color: #ff4757; }
+
+  /* ---- layout ---- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    padding: 16px;
+  }
+
+  /* ---- stat cards ---- */
+  .stat-card {
+    background: #111827;
+    border: 1px solid #1e2a4a;
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    animation: cardIn 0.4s ease both;
+    transition: box-shadow 0.3s, border-color 0.3s;
+  }
+  .stat-card:hover { border-color: #00d4ff33; box-shadow: 0 0 16px rgba(0,212,255,0.06); }
+
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .stat-card:nth-child(1) { animation-delay: 0.05s; }
+  .stat-card:nth-child(2) { animation-delay: 0.10s; }
+  .stat-card:nth-child(3) { animation-delay: 0.15s; }
+  .stat-card:nth-child(4) { animation-delay: 0.20s; }
+
+  .stat-card .label { font-size: 10px; color: #666; letter-spacing: 1px; text-transform: uppercase; }
+  .stat-card .value { font-size: 32px; font-weight: bold; transition: color 0.3s; }
+  .stat-card.total  .value { color: #00d4ff; }
+  .stat-card.high   .value { color: #ff4757; }
+  .stat-card.medium .value { color: #ffa502; }
+  .stat-card.low    .value { color: #2ed573; }
+
+  /* flash when value changes */
+  .value.flash-high   { animation: flashHigh 0.6s ease; }
+  .value.flash-medium { animation: flashMed  0.6s ease; }
+  .value.flash-low    { animation: flashLow  0.6s ease; }
+  .value.flash-total  { animation: flashTotal 0.6s ease; }
+
+  @keyframes flashHigh   { 0%,100% {} 30% { text-shadow: 0 0 18px #ff4757; } }
+  @keyframes flashMed    { 0%,100% {} 30% { text-shadow: 0 0 18px #ffa502; } }
+  @keyframes flashLow    { 0%,100% {} 30% { text-shadow: 0 0 18px #2ed573; } }
+  @keyframes flashTotal  { 0%,100% {} 30% { text-shadow: 0 0 18px #00d4ff; } }
+
+  /* ---- panels ---- */
+  .panel {
+    background: #111827;
+    border: 1px solid #1e2a4a;
+    border-radius: 8px;
+    padding: 16px;
+    margin: 0 16px 16px;
+    transition: border-color 0.3s;
+  }
+  .panel h2 {
+    font-size: 11px;
+    color: #00d4ff;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #1e2a4a;
+    padding-bottom: 8px;
+  }
+
+  /* ---- charts row ---- */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    gap: 12px;
+    padding: 0 16px 16px;
+  }
+  .chart-panel {
+    background: #111827;
+    border: 1px solid #1e2a4a;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .chart-panel h2 {
+    font-size: 11px;
+    color: #00d4ff;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    border-bottom: 1px solid #1e2a4a;
+    padding-bottom: 8px;
+  }
+  .chart-container { position: relative; height: 180px; }
+
+  /* ---- alert feed ---- */
+  #alert-feed { max-height: 340px; overflow-y: auto; }
+  #alert-feed::-webkit-scrollbar { width: 4px; }
+  #alert-feed::-webkit-scrollbar-track { background: #0d0d1a; }
+  #alert-feed::-webkit-scrollbar-thumb { background: #1e2a4a; border-radius: 2px; }
+
+  .alert-row {
+    display: grid;
+    grid-template-columns: 70px 80px 160px 1fr 80px;
+    gap: 10px;
+    padding: 8px 6px;
+    border-bottom: 1px solid #1a2035;
+    align-items: center;
+    animation: alertSlideIn 0.35s ease both;
+  }
+  @keyframes alertSlideIn {
+    from { opacity: 0; transform: translateX(-8px); background: rgba(0,212,255,0.06); }
+    to   { opacity: 1; transform: translateX(0);    background: transparent; }
+  }
+  .alert-row.sev-flash-HIGH   { animation: alertFlashHigh   0.7s ease both; }
+  .alert-row.sev-flash-MEDIUM { animation: alertFlashMedium 0.7s ease both; }
+
+  @keyframes alertFlashHigh {
+    0%   { background: rgba(255,71,87,0.18); }
+    100% { background: transparent; }
+  }
+  @keyframes alertFlashMedium {
+    0%   { background: rgba(255,165,2,0.14); }
+    100% { background: transparent; }
+  }
+
+  .alert-row:hover { background: #151f35; }
+
+  .sev-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+  }
+  .sev-HIGH   { background: #3d0f14; color: #ff4757; border: 1px solid #ff4757; }
+  .sev-MEDIUM { background: #2d1f00; color: #ffa502; border: 1px solid #ffa502; }
+  .sev-LOW    { background: #0d2b1a; color: #2ed573; border: 1px solid #2ed573; }
+
+  .alert-type  { color: #a0b4d0; font-size: 11px; }
+  .alert-src   { color: #00d4ff; font-family: monospace; }
+  .alert-mitre { color: #6c7a9c; font-size: 11px; }
+  .alert-time  { color: #555; font-size: 10px; }
+
+  .feed-header {
+    display: grid;
+    grid-template-columns: 70px 80px 160px 1fr 80px;
+    gap: 10px;
+    padding: 0 6px 8px;
+    font-size: 10px;
+    color: #444;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #1e2a4a;
+    margin-bottom: 4px;
+  }
+
+  /* ---- top attackers ---- */
+  .attacker-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid #1a2035;
+  }
+  .attacker-row:last-child { border-bottom: none; }
+  .attacker-ip    { color: #00d4ff; font-family: monospace; font-size: 12px; flex: 1; }
+  .attacker-count { color: #ffa502; font-weight: bold; font-size: 13px; min-width: 30px; text-align: right; }
+  .attacker-bar-wrap { flex: 2; background: #1a2035; border-radius: 2px; height: 6px; }
+  .attacker-bar { background: linear-gradient(90deg, #00d4ff, #0080ff); height: 6px; border-radius: 2px; transition: width 0.6s ease; }
+
+  /* ---- incidents ---- */
+  .incident-row {
+    display: grid;
+    grid-template-columns: 80px 130px 60px 60px 1fr 140px;
+    gap: 10px;
+    padding: 8px 6px;
+    border-bottom: 1px solid #1a2035;
+    align-items: center;
+    animation: alertSlideIn 0.35s ease both;
+  }
+  .incident-row:hover { background: #151f35; }
+  .inc-risk   { font-weight: bold; font-size: 15px; }
+  .inc-types  { color: #a0b4d0; font-size: 11px; }
+  .inc-time   { color: #555; font-size: 10px; text-align: right; }
+  .inc-header {
+    display: grid;
+    grid-template-columns: 80px 130px 60px 60px 1fr 140px;
+    gap: 10px;
+    padding: 0 6px 8px;
+    font-size: 10px;
+    color: #444;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #1e2a4a;
+    margin-bottom: 4px;
+  }
+
+  /* ---- no data ---- */
+  .no-data { color: #444; text-align: center; padding: 40px; font-style: italic; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Net<span>IDS</span> &nbsp;/&nbsp; SOC Dashboard</h1>
+  <div id="live-indicator">
+    <div class="pulse"></div>
+    LIVE
+    <span id="last-update">—</span>
+    <a href="/logout" class="logout-btn">Logout</a>
+  </div>
+</header>
+
+<!-- stat cards -->
+<div class="grid" style="padding-top:16px;">
+  <div class="stat-card total">
+    <div class="label">Total Alerts</div>
+    <div class="value" id="stat-total">0</div>
+  </div>
+  <div class="stat-card high">
+    <div class="label">High Severity</div>
+    <div class="value" id="stat-high">0</div>
+  </div>
+  <div class="stat-card medium">
+    <div class="label">Medium Severity</div>
+    <div class="value" id="stat-medium">0</div>
+  </div>
+  <div class="stat-card low">
+    <div class="label">Low Severity</div>
+    <div class="value" id="stat-low">0</div>
+  </div>
+</div>
+
+<!-- charts row -->
+<div class="charts-row">
+  <div class="chart-panel">
+    <h2>Severity Breakdown</h2>
+    <div class="chart-container">
+      <canvas id="chart-severity"></canvas>
+    </div>
+  </div>
+  <div class="chart-panel">
+    <h2>Alert Timeline</h2>
+    <div class="chart-container">
+      <canvas id="chart-timeline"></canvas>
+    </div>
+  </div>
+  <div class="chart-panel">
+    <h2>Top Attackers</h2>
+    <div id="top-attackers"><div class="no-data">No data yet</div></div>
+  </div>
+</div>
+
+<!-- incidents panel -->
+<div class="panel">
+  <h2>Active Incidents</h2>
+  <div id="incidents-feed"><div class="no-data">No incidents yet</div></div>
+</div>
+
+<!-- alert feed -->
+<div class="panel">
+  <h2>Live Alert Feed</h2>
+  <div class="feed-header">
+    <span>Severity</span>
+    <span>MITRE</span>
+    <span>Alert Type</span>
+    <span>Source IP</span>
+    <span>Time</span>
+  </div>
+  <div id="alert-feed"><div class="no-data">Waiting for alerts...</div></div>
+</div>
+
+<script>
+  let severityChart = null;
+  let timelineChart = null;
+
+  // ---- count-up animation for stat cards ----
+  function countUp(el, target, flashClass) {
+    const current = parseInt(el.textContent) || 0;
+    if (current === target) return;
+    el.classList.remove(flashClass);
+    void el.offsetWidth;  // reflow to restart animation
+    el.classList.add(flashClass);
+
+    const diff = target - current;
+    const steps = Math.min(Math.abs(diff), 20);
+    const step = diff / steps;
+    let count = current;
+    let i = 0;
+
+    const timer = setInterval(() => {
+      count += step;
+      i++;
+      el.textContent = Math.round(i === steps ? target : count);
+      if (i >= steps) clearInterval(timer);
+    }, 30);
+  }
+
+  // ---- init charts ----
+  function initSeverityChart() {
+    const ctx = document.getElementById("chart-severity").getContext("2d");
+    severityChart = new Chart(ctx, {
+      type: "doughnut",
+      data: {
+        labels: ["HIGH", "MEDIUM", "LOW"],
+        datasets: [{
+          data: [0, 0, 0],
+          backgroundColor: ["#ff4757", "#ffa502", "#2ed573"],
+          borderColor: "#111827",
+          borderWidth: 3,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: "bottom", labels: { color: "#888", font: { size: 10 } } }
+        },
+        cutout: "65%",
+      }
+    });
+  }
+
+  function initTimelineChart() {
+    const ctx = document.getElementById("chart-timeline").getContext("2d");
+    timelineChart = new Chart(ctx, {
+      type: "bar",
+      data: { labels: [], datasets: [{ label: "Alerts", data: [], backgroundColor: "#1a4a7a", borderColor: "#00d4ff", borderWidth: 1, borderRadius: 3 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: "#555", font: { size: 9 } }, grid: { color: "#1a2035" } },
+          y: { ticks: { color: "#555", font: { size: 9 } }, grid: { color: "#1a2035" }, beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  // ---- fetch and render stats ----
+  async function refreshStats() {
+    try {
+      const res = await fetch("/api/stats");
+      const d = await res.json();
+
+      countUp(document.getElementById("stat-total"),  d.total,  "flash-total");
+      countUp(document.getElementById("stat-high"),   d.high,   "flash-high");
+      countUp(document.getElementById("stat-medium"), d.medium, "flash-medium");
+      countUp(document.getElementById("stat-low"),    d.low,    "flash-low");
+
+      severityChart.data.datasets[0].data = [d.high, d.medium, d.low];
+      severityChart.update("none");
+
+      timelineChart.data.labels = d.timeline_labels || [];
+      timelineChart.data.datasets[0].data = d.timeline_data || [];
+      timelineChart.update("none");
+
+      const box = document.getElementById("top-attackers");
+      if (!d.top_src || d.top_src.length === 0) {
+        box.innerHTML = '<div class="no-data">No data yet</div>';
+      } else {
+        const max = d.top_src[0].count;
+        box.innerHTML = d.top_src.map(s => `
+          <div class="attacker-row">
+            <span class="attacker-ip">${s.ip}</span>
+            <div class="attacker-bar-wrap"><div class="attacker-bar" style="width:${Math.round(s.count/max*100)}%"></div></div>
+            <span class="attacker-count">${s.count}</span>
+          </div>`).join("");
+      }
+    } catch (e) { console.error("stats error", e); }
+  }
+
+  // ---- fetch and render alert feed ----
+  let knownIds = new Set();
+
+  async function refreshAlerts() {
+    try {
+      const res = await fetch("/api/alerts");
+      const alerts = await res.json();
+
+      if (alerts.length === 0) return;
+
+      const feed = document.getElementById("alert-feed");
+      if (feed.querySelector(".no-data")) feed.innerHTML = "";
+
+      const newAlerts = alerts.filter(a => !knownIds.has(a.event_id + a.ts));
+      newAlerts.forEach(a => knownIds.add(a.event_id + a.ts));
+
+      newAlerts.forEach(a => {
+        const sev = a.severity || "LOW";
+        const row = document.createElement("div");
+        // add flash class for HIGH/MEDIUM so they glow on arrival
+        row.className = "alert-row" + (sev !== "LOW" ? ` sev-flash-${sev}` : "");
+        row.innerHTML = `
+          <span><span class="sev-badge sev-${sev}">${sev}</span></span>
+          <span class="alert-mitre">${a.mitre_technique || "—"}</span>
+          <span class="alert-type">${(a.alert_type || "").replace(/_/g, " ")}</span>
+          <span class="alert-src">${a.src_ip || "—"} → ${a.dst_ip || "—"}${a.dst_port ? ":" + a.dst_port : ""}</span>
+          <span class="alert-time">${a.time_fmt || "—"}</span>
+        `;
+        feed.insertBefore(row, feed.firstChild);
+      });
+
+      while (feed.children.length > 100) feed.removeChild(feed.lastChild);
+
+    } catch (e) { console.error("alerts error", e); }
+  }
+
+  // ---- fetch and render incidents ----
+  let lastIncidentsJSON = "";
+
+  async function refreshIncidents() {
+    try {
+      const res = await fetch("/api/incidents");
+      const incidents = await res.json();
+      const serialized = JSON.stringify(incidents);
+      if (serialized === lastIncidentsJSON) return;   // nothing changed, skip re-render
+      lastIncidentsJSON = serialized;
+      const feed = document.getElementById("incidents-feed");
+
+      if (!incidents || incidents.length === 0) {
+        feed.innerHTML = '<div class="no-data">No incidents detected</div>';
+        return;
+      }
+
+      const SEV_COLORS = { HIGH: "#ff4757", MEDIUM: "#ffa502", LOW: "#2ed573" };
+
+      let html = `<div class="inc-header">
+        <span>Severity</span><span>Source IP</span><span>Alerts</span>
+        <span>Risk</span><span>Attack Types</span><span>Time Span</span>
+      </div>`;
+
+      for (const inc of incidents) {
+        const sev = inc.severity || "LOW";
+        const color = SEV_COLORS[sev] || "#888";
+        const types = (inc.alert_types || [])
+          .map(t => `${t.type.replace(/_/g, " ")} (${t.count})`)
+          .join(", ");
+        html += `<div class="incident-row">
+          <span><span class="sev-badge sev-${sev}">${sev}</span></span>
+          <span class="alert-src">${inc.src_ip || "—"}</span>
+          <span style="color:#e0e0e0;font-weight:bold">${inc.alert_count}</span>
+          <span class="inc-risk" style="color:${color}">${inc.risk_score}</span>
+          <span class="inc-types">${types || "—"}</span>
+          <span class="inc-time">${inc.first_seen_fmt || "—"} → ${inc.last_seen_fmt || "—"}</span>
+        </div>`;
+      }
+      feed.innerHTML = html;
+    } catch (e) { console.error("incidents error", e); }
+  }
+
+  // ---- tick ----
+  async function tick() {
+    await Promise.all([refreshStats(), refreshAlerts(), refreshIncidents()]);
+    document.getElementById("last-update").textContent =
+      "Updated " + new Date().toLocaleTimeString();
+  }
+
+  // ---- boot ----
+  initSeverityChart();
+  initTimelineChart();
+  tick();
+  setInterval(tick, 3000);
+</script>
+</body>
+</html>

@@ -44,6 +44,7 @@ from models.alerts import Alert
 from ai.feature_extractor import FeatureExtractor
 from ai.risk_engine import RiskEngine
 from ai.soc_copilot import soc_analysis
+from ai.anomaly_detector import AnomalyDetector
 
 # -----------------------
 # ANSI colors
@@ -411,6 +412,7 @@ def main() -> int:
     ap.add_argument("--syn-threshold", type=int, default=20, help="SYN burst packet threshold")
     ap.add_argument("--ssh-window", type=int, default=30, help="SSH brute-force window (seconds)")
     ap.add_argument("--ssh-threshold", type=int, default=12, help="SSH brute-force attempt threshold")
+    ap.add_argument("--auto-block", action="store_true", help="Auto-block HIGH severity sources via iptables (requires root)")
 
     args = ap.parse_args()
     cfg = load_config(args.config)
@@ -449,7 +451,7 @@ def main() -> int:
     # incident manager groups alerts from the same IP within a 120s window
     # incidents expire after 5 minutes of no activity from that source
     incident_mgr = IncidentManager(window_s=120, max_idle_s=300)
-    notifier = Notifier(cooldown_s=20)
+    notifier = Notifier(cooldown_s=20, auto_block_enabled=args.auto_block)
 
     log_path = Path(cfg.get("log_path", args.log))
     if not log_path.is_absolute():

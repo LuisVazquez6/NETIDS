@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 import json
-import time 
+import time
+import subprocess
 from collections import defaultdict
 import urllib.request
 
@@ -14,12 +15,15 @@ class Notifier:
         cooldown_s: int = 20,
         min_severity: str = "MEDIUM",
         webhook_url: Optional[str] = None,
+        auto_block_enabled: bool = False,
     ):
 
         self.cooldown_s = cooldown_s
         self.min_severity = min_severity
         self.webhook_url = webhook_url
+        self.auto_block_enabled = auto_block_enabled
         self.last_sent: Dict[str, float] = defaultdict(float)
+        self._blocked_ips: set = set()
 
     def _sev_ok(self, incident: Dict[str, Any]) -> bool:
         sev = str(incident.get("severity", "LOW"))
@@ -42,6 +46,22 @@ class Notifier:
         self.last_sent[k] = now
         return True
 
+    def auto_block(self, src_ip: str) -> None:
+        """Drop all inbound traffic from src_ip via iptables. Runs once per IP."""
+        if not self.auto_block_enabled or not src_ip:
+            return
+        if src_ip in self._blocked_ips:
+            return
+        self._blocked_ips.add(src_ip)
+        try:
+            subprocess.run(
+                ["iptables", "-A", "INPUT", "-s", src_ip, "-j", "DROP"],
+                check=True, capture_output=True, timeout=5,
+            )
+            print(f"\033[91m[BLOCKED]\033[0m iptables rule added: DROP {src_ip}")
+        except Exception as e:
+            print(f"[BLOCK FAILED] could not add iptables rule for {src_ip}: {e}")
+
     def notify_console(self, incident: Dict[str, Any]) -> None:
         sev   = incident.get("severity", "LOW")
         color = {"HIGH": "\033[91m", "MEDIUM": "\033[93m", "LOW": "\033[92m"}.get(sev, "\033[0m")
@@ -54,6 +74,9 @@ class Notifier:
             f" src={bold}{incident.get('primary_src_ip')}{reset}"
             f" :: {incident.get('summary')}"
         )
+        if sev == "HIGH":
+            src = incident.get("primary_src_ip") or incident.get("src_ip", "")
+            self.auto_block(src)
 
     def notify_webhook(self, incident: Dict[str, Any]) -> None:
         if not self.webhook_url:

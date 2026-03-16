@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetIDS — Login</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0d0d1a;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', monospace;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* matrix canvas sits behind everything */
+  #matrix-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    opacity: 0.18;
+  }
+
+  /* scan line overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .login-box {
+    position: relative;
+    z-index: 2;
+    background: rgba(17, 24, 39, 0.92);
+    border: 1px solid #1e2a4a;
+    border-radius: 10px;
+    padding: 40px 48px;
+    width: 360px;
+    backdrop-filter: blur(6px);
+    animation: slideUp 0.5s ease both;
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* shake on bad login */
+  .login-box.shake {
+    animation: shake 0.4s ease;
+  }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%       { transform: translateX(-10px); }
+    40%       { transform: translateX(10px); }
+    60%       { transform: translateX(-8px); }
+    80%       { transform: translateX(8px); }
+  }
+
+  .logo {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  /* glitch effect on the title */
+  .logo h1 {
+    font-size: 28px;
+    color: #00d4ff;
+    letter-spacing: 4px;
+    position: relative;
+    display: inline-block;
+    animation: glitch 4s infinite;
+  }
+
+  .logo h1 span { color: #fff; }
+
+  @keyframes glitch {
+    0%, 90%, 100% {
+      text-shadow: none;
+      transform: none;
+    }
+    92% {
+      text-shadow: -2px 0 #ff4757, 2px 0 #00d4ff;
+      transform: skewX(-3deg);
+    }
+    94% {
+      text-shadow: 2px 0 #ff4757, -2px 0 #00d4ff;
+      transform: skewX(3deg);
+    }
+    96% {
+      text-shadow: none;
+      transform: none;
+    }
+    98% {
+      text-shadow: -2px 0 #00d4ff;
+      transform: skewX(-1deg);
+    }
+  }
+
+  .logo p {
+    color: #444;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-top: 8px;
+  }
+
+  label {
+    display: block;
+    font-size: 10px;
+    color: #666;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    margin-top: 18px;
+  }
+
+  input[type="text"],
+  input[type="password"] {
+    width: 100%;
+    background: #0d0d1a;
+    border: 1px solid #1e2a4a;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-family: monospace;
+    font-size: 13px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  input[type="text"]:focus,
+  input[type="password"]:focus {
+    border-color: #00d4ff;
+    box-shadow: 0 0 8px rgba(0, 212, 255, 0.25);
+  }
+
+  button {
+    width: 100%;
+    margin-top: 28px;
+    padding: 12px;
+    background: #00d4ff;
+    color: #0d0d1a;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+  }
+
+  button:hover {
+    background: #00aacc;
+    box-shadow: 0 0 16px rgba(0, 212, 255, 0.4);
+  }
+
+  button:active { transform: scale(0.98); }
+
+  .error {
+    background: #3d0f14;
+    border: 1px solid #ff4757;
+    color: #ff4757;
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 12px;
+    margin-top: 18px;
+    text-align: center;
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="matrix-canvas"></canvas>
+
+<div class="login-box {% if error %}shake{% endif %}">
+  <div class="logo">
+    <h1>Net<span>IDS</span></h1>
+    <p>SOC Dashboard — Secure Access</p>
+  </div>
+
+  <form method="POST" action="/login">
+    <label for="username">Username</label>
+    <input type="text" id="username" name="username" autocomplete="off" autofocus>
+
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password">
+
+    <button type="submit">Sign In</button>
+  </form>
+
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+</div>
+
+<script>
+  // ---- Matrix rain ----
+  const canvas = document.getElementById("matrix-canvas");
+  const ctx    = canvas.getContext("2d");
+  const CHARS  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&<>/\\|[]{}";
+  const FONT_SIZE = 14;
+  let cols, drops;
+
+  function resize() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+    cols  = Math.floor(canvas.width / FONT_SIZE);
+    drops = Array(cols).fill(1);
+  }
+
+  function drawMatrix() {
+    ctx.fillStyle = "rgba(13, 13, 26, 0.05)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#00d4ff";
+    ctx.font = FONT_SIZE + "px monospace";
+
+    for (let i = 0; i < drops.length; i++) {
+      const char = CHARS[Math.floor(Math.random() * CHARS.length)];
+      ctx.fillText(char, i * FONT_SIZE, drops[i] * FONT_SIZE);
+      if (drops[i] * FONT_SIZE > canvas.height && Math.random() > 0.975) {
+        drops[i] = 0;
+      }
+      drops[i]++;
+    }
+  }
+
+  resize();
+  window.addEventListener("resize", resize);
+  setInterval(drawMatrix, 40);
+</script>
+</body>
+</html>
