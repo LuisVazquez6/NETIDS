@@ -24,6 +24,7 @@ class Incident:
 
     alert_count: int = 0
     alert_types: Dict[str, int] = field(default_factory=dict)
+    alert_severities: Dict[str, str] = field(default_factory=dict)  # alert_type -> highest severity seen
     timeline: List[Dict[str, Any]] = field(default_factory=list)
 
     summary: str = ""

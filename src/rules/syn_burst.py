@@ -13,6 +13,8 @@ class SYNBurstDetector:
     Best fed only TCP packets; we further filter to SYN without ACK inside process().
     """
 
+    INTERNAL_COOLDOWN_S = 10
+
     def __init__(self, window_s: int = 5, threshold_syn: int = 20, thresholds: Optional[dict] = None):
         self.window_s = window_s
         # kept for compatibility / debugging
@@ -21,6 +23,8 @@ class SYNBurstDetector:
 
         # src_ip -> deque[timestamps]
         self.events: Dict[str, Deque[float]] = defaultdict(deque)
+        # src_ip -> {severity -> last_fire_ts}
+        self._last_fire: Dict[str, Dict[str, float]] = defaultdict(dict)
 
     def process(self, ts: float, src_ip: str, dst_ip: str, flags: int) -> List[Alert]:
         # Count only SYN without ACK as "attempt-like" burst
@@ -54,10 +58,12 @@ class SYNBurstDetector:
         thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
         severity = classify(count, thresholds)
 
-        if severity != "HIGH":
+        if severity == "LOW":
             return []
 
-        ##print(f"[SYNDBG] src={src_ip} count={count} sev={severity} dq_len={len(dq)} th={thresholds}")
+        if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
+            return []
+        self._last_fire[src_ip][severity] = ts
 
         alert = Alert(
             ts=ts,

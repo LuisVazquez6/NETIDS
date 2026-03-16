@@ -17,6 +17,8 @@ class SSHBruteForceDetector:
     host logs, but this is SOC-valid for traffic-based detection in a lab.
     """
 
+    INTERNAL_COOLDOWN_S = 10
+
     def __init__(self, window_s: int = 30, threshold_hits: int = 12, thresholds: Optional[dict] = None):
         self.window_s = window_s
         # kept for compatibility / debugging
@@ -25,6 +27,8 @@ class SSHBruteForceDetector:
 
         # src_ip -> deque[timestamps]
         self.events: Dict[str, Deque[float]] = defaultdict(deque)
+        # src_ip -> {severity -> last_fire_ts}
+        self._last_fire: Dict[str, Dict[str, float]] = defaultdict(dict)
 
     def process(self, ts: float, src_ip: str, dst_ip: str, dst_port: int, flags: int) -> List[Alert]:
         # Only look at SSH
@@ -59,9 +63,12 @@ class SSHBruteForceDetector:
         thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
         severity = classify(attempts, thresholds)
 
-        # optional: suppress LOW spam (like your current syn_burst behavior)
         if severity == "LOW":
             return []
+
+        if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
+            return []
+        self._last_fire[src_ip][severity] = ts
 
         alert = Alert(
             ts=ts,

@@ -16,6 +16,8 @@ class PortScanDetector:
       thresholds = {"low": X, "medium": Y, "high": Z}
     """
 
+    INTERNAL_COOLDOWN_S = 10
+
     def __init__(self, window_s: int = 15, threshold_ports: int = 20, thresholds: Optional[dict] = None):
         self.window_s = window_s
         # Keep for display / backwards compatibility (medium-ish baseline)
@@ -24,6 +26,8 @@ class PortScanDetector:
 
         # src_ip -> deque[(ts, dst_ip, dst_port)]
         self.events: Dict[str, Deque[Tuple[float, str, int]]] = defaultdict(deque)
+        # src_ip -> {severity -> last_fire_ts}
+        self._last_fire: Dict[str, Dict[str, float]] = defaultdict(dict)
 
     def process(self, ts: float, src_ip: str, dst_ip: str, dst_port: int) -> List[Alert]:
         dq = self.events[src_ip]
@@ -53,6 +57,10 @@ class PortScanDetector:
 
         if severity == "LOW":
             return []
+
+        if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
+            return []
+        self._last_fire[src_ip][severity] = ts
 
         alert = Alert(
             ts=ts,

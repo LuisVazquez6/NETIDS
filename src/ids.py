@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 from typing import Any, Dict, Optional, List
+from datetime import datetime
 import os
 import argparse
 import json
@@ -8,9 +9,24 @@ import sys
 import time
 import traceback
 import hashlib
+import threading
 from collections import defaultdict
+
+_AI_SEMAPHORE = threading.Semaphore(1)  # serialize Ollama calls
 from dataclasses import asdict
 from pathlib import Path
+
+# ANSI colors
+RESET  = "\033[0m"
+BOLD   = "\033[1m"
+DIM    = "\033[2m"
+RED    = "\033[91m"
+YELLOW = "\033[93m"
+GREEN  = "\033[92m"
+CYAN   = "\033[96m"
+WHITE  = "\033[97m"
+
+SEV_COLOR = {"HIGH": RED, "MEDIUM": YELLOW, "LOW": GREEN}
 from scapy.all import PcapReader, IP, TCP, UDP, ICMP, sniff, conf  # type: ignore
 from rules.port_scan import PortScanDetector
 from rules.icmp_flood import ICMPFloodDetector
@@ -21,20 +37,17 @@ from correlation.incident_manager import IncidentManager
 from response.notifier import Notifier
 from models.alerts import Alert
 from enrichment.mitre_mapper import map_mitre
+from ai.feature_extractor import FeatureExtractor
+##from ai.anomaly_detector import AnomalyDetector
+from ai.risk_engine import RiskEngine
+from ai.soc_copilot import soc_analysis
 
-import os
-import argparse
-import json
-import sys
-import time
-import traceback
-import hashlib
 
 
 # -----------------------
 # Alert cooldown / dedupe
 # -----------------------
-ALERT_COOLDOWN_S = 10
+ALERT_COOLDOWN_S = 60
 _last_alert_ts = defaultdict(float)
 
 def fingerprint(a: Alert) -> str:
@@ -46,8 +59,7 @@ def should_emit(a: Alert) -> bool:
         a.alert_type,
         a.src_ip,
         getattr(a, "dst_ip", None),
-        getattr(a, "dst_port", None),
-        getattr(a, "proto", None),
+        a.severity,
     )
     now = float(a.ts)
     if now - _last_alert_ts[key] < ALERT_COOLDOWN_S:
@@ -77,6 +89,70 @@ class JSONLLogger:
 # -----------------------
 # Helpers (thresholds)
 # -----------------------
+def format_ts(ts: Any) -> str:
+    try:
+        return datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(ts)
+
+
+def print_alert_console(a_dict: Dict[str, Any]) -> None:
+    title             = a_dict.get("alert_type", "UNKNOWN_ALERT")
+    ts                = format_ts(a_dict.get("ts", time.time()))
+    src_ip            = a_dict.get("src_ip", "N/A")
+    dst_ip            = a_dict.get("dst_ip", "N/A")
+    dst_port          = a_dict.get("dst_port", "N/A")
+    proto             = a_dict.get("proto", "N/A")
+    severity          = a_dict.get("severity", "N/A")
+    mitre             = a_dict.get("mitre_technique", "N/A")
+    event_id          = a_dict.get("event_id", "N/A")
+
+    ai_summary        = a_dict.get("ai_summary",        "No AI summary available")
+    ai_severity       = a_dict.get("ai_severity",       "N/A")
+    ai_explanation    = a_dict.get("ai_explanation",    "No AI explanation available")
+    ai_recommendation = a_dict.get("ai_recommendation", "No recommendation available")
+
+    enrichment      = a_dict.get("enrichment", {}) or {}
+    dst_service     = enrichment.get("dst_service", "")
+    src_reverse_dns = enrichment.get("src_reverse_dns", "")
+    src_is_private  = enrichment.get("src_is_private", "N/A")
+    src_country     = enrichment.get("src_country", "")
+    src_org         = enrichment.get("src_org", "")
+
+    c = SEV_COLOR.get(severity, WHITE)
+
+    print("\n" + c + "=" * 72 + RESET)
+    print(f"{c}{BOLD} ALERT [{severity}]: {title}{RESET}")
+    print(c + "=" * 72 + RESET)
+    print(f"{DIM} Time:        {RESET}{ts}")
+    print(f"{DIM} Event ID:    {RESET}{event_id}")
+    print(f" Severity:    {c}{BOLD}{severity}{RESET}")
+    print(f"{DIM} MITRE:       {RESET}{CYAN}{mitre}{RESET}")
+    print(f"{DIM} Source:      {RESET}{BOLD}{src_ip}{RESET}")
+    print(f"{DIM} Src DNS:     {RESET}{src_reverse_dns or 'N/A'}")
+    print(f"{DIM} Src Private: {RESET}{src_is_private}")
+    if src_country:
+        print(f"{DIM} Src Country: {RESET}{src_country} ({enrichment.get('src_country_code', '')})")
+    if src_org:
+        print(f"{DIM} Src Org/ASN: {RESET}{src_org}")
+    print(f"{DIM} Destination: {RESET}{dst_ip}:{dst_port}")
+    print(f"{DIM} Protocol:    {RESET}{proto}")
+    print(f"{DIM} Service:     {RESET}{dst_service or 'N/A'}")
+
+    details = a_dict.get("details", {})
+    if details:
+        print(f"\n{BOLD} Detection Details:{RESET}")
+        for k, v in details.items():
+            print(f"   {DIM}-{RESET} {k}: {v}")
+
+    print(f"\n{BOLD} AI Analysis:{RESET}")
+    print(f"   {DIM}Summary:        {RESET}{ai_summary}")
+    print(f"   {DIM}AI Severity:    {RESET}{c}{ai_severity}{RESET}")
+    print(f"   {DIM}Explanation:    {RESET}{ai_explanation}")
+    print(f"   {DIM}Recommendation: {RESET}{CYAN}{ai_recommendation}{RESET}")
+    print(c + "=" * 72 + RESET)
+
+
 def _int(x: Any, default: int) -> int:
     try:
         return int(x)
@@ -115,15 +191,32 @@ def emit_alerts(alerts: List[Alert], logger: JSONLLogger, incident_mgr: Incident
         a_dict["mitre_technique"] = map_mitre(a.alert_type)
         a_dict = enrich_alert_dict(a_dict)
 
-        incident, _is_new = incident_mgr.ingest(a_dict)
+        incident, is_new, escalated = incident_mgr.ingest(a_dict)
         inc_dict = incident.to_dict()
 
-        if notifier.should_notify(inc_dict):
+        if (is_new or escalated) and notifier.should_notify(inc_dict):
             notifier.notify_console(inc_dict)
             notifier.notify_webhook(inc_dict)
 
-        print(f"[ALERT] {a.alert_type} ({a_dict['mitre_technique']}) src={a.src_ip} severity={a.severity}")
+        print_alert_console(a_dict)
         logger.write_dict(a_dict)
+
+        # AI SOC analysis runs in background — never blocks packet processing
+        def _ai_background(d: Dict[str, Any]) -> None:
+            with _AI_SEMAPHORE:
+                try:
+                    updated = soc_analysis(d.copy())
+                    eid = d.get("event_id", "")
+                    print(
+                        f"\n{CYAN}[AI]{RESET} event={eid}"
+                        f"\n   Summary:        {updated.get('ai_summary', 'N/A')}"
+                        f"\n   Explanation:    {updated.get('ai_explanation', 'N/A')}"
+                        f"\n   {CYAN}Recommendation: {updated.get('ai_recommendation', 'N/A')}{RESET}"
+                    )
+                except Exception:
+                    pass
+
+        threading.Thread(target=_ai_background, args=(a_dict,), daemon=True).start()
 
 
 def handle_packet(
@@ -136,6 +229,9 @@ def handle_packet(
     logger: JSONLLogger,
     incident_mgr: IncidentManager,
     notifier: Notifier,
+    feature_extractor=None,
+    anomaly_detector=None,
+    risk_engine=None,
 ) -> None:
     stats["total_packets"] += 1
 
@@ -143,12 +239,12 @@ def handle_packet(
         return
     stats["ip_packets"] += 1
 
+    ts = float(getattr(pkt, "time", time.time()))
     src = pkt[IP].src
     dst = pkt[IP].dst
+
     stats["top_src"][src] += 1
     stats["top_dst"][dst] += 1
-
-    ts = float(getattr(pkt, "time", time.time()))
 
     if TCP in pkt:
         stats["tcp_packets"] += 1
@@ -165,31 +261,53 @@ def handle_packet(
 
         tcp_alerts += syn_burst.process(ts, src, dst, flags)
 
-        ##tcp_alerts += portscan.process(ts, src, dst, dport)
-        ##tcp_alerts += syn_burst.process(ts, src, dst, flags)
-        ##tcp_alerts += ssh_bf.process(ts, src, dst, dport, flags)
-
-    # enrich for dedupe/fingerprint
         for a in tcp_alerts:
             setattr(a, "dst_ip", dst)
             setattr(a, "dst_port", dport)
             setattr(a, "proto", "TCP")
 
-        emit_alerts(tcp_alerts, logger, incident_mgr, notifier)
+        if tcp_alerts:
+            emit_alerts(tcp_alerts, logger, incident_mgr, notifier)
 
     elif UDP in pkt:
         stats["udp_packets"] += 1
 
     elif ICMP in pkt:
         stats["icmp_packets"] += 1
+
         if int(pkt[ICMP].type) == 8:
             icmp_alerts = icmp_flood.process(ts, src, dst)
+
             for a in icmp_alerts:
                 setattr(a, "dst_ip", dst)
                 setattr(a, "dst_port", None)
                 setattr(a, "proto", "ICMP")
 
-            emit_alerts(icmp_alerts, logger, incident_mgr, notifier)
+            if icmp_alerts:
+                emit_alerts(icmp_alerts, logger, incident_mgr, notifier)
+
+    # AI anomaly detection runs for any IP packet
+    if feature_extractor and anomaly_detector and risk_engine:
+        try:
+            features = feature_extractor.extract(pkt)
+
+            if features:
+                ai_result = anomaly_detector.analyze(features)
+
+                if ai_result.get("is_anomaly"):
+                    ai_alert_dict = risk_engine.build_alert(features, ai_result)
+
+                    if ai_alert_dict:
+                        logger.write_dict(ai_alert_dict)
+                        print(
+                            f"[AI ALERT] {ai_alert_dict['alert_type']} "
+                            f"src={ai_alert_dict['src_ip']} "
+                            f"severity={ai_alert_dict['severity']} "
+                            f"score={ai_alert_dict['score']:.3f}"
+                        )
+
+        except Exception as e:
+            print(f"[AI] packet analysis error: {e}", file=sys.stderr)
 
 
 def run_live(
@@ -202,6 +320,9 @@ def run_live(
     logger: JSONLLogger,
     incident_mgr: IncidentManager,
     notifier: Notifier,
+    feature_extractor=None,
+    anomaly_detector=None,
+    risk_engine=None,
 ) -> None:
     if interface:
         print(f"[*] Live capture on interface: {interface}")
@@ -210,7 +331,7 @@ def run_live(
 
     def on_packet(pkt):
         try:
-            handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier)
+            handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier,feature_extractor,anomaly_detector,risk_engine)
         except Exception as e:
             print(f"[!] Packet handler error: {e}", file=sys.stderr)
             traceback.print_exc()
@@ -269,11 +390,39 @@ def main() -> int:
     args = ap.parse_args()
     cfg = load_config(args.config)
 
+    ROOT = Path(__file__).resolve().parents[1]  # src/ids.py -> netids/
+
+    ai_cfg = cfg.get("ai_detection", {})
+    ai_enabled = ai_cfg.get("enabled", False)
+
+    feature_extractor = None
+    anomaly_detector = None
+    risk_engine = None
+
+    if ai_enabled:
+        try:
+            model_path = ai_cfg.get("model_path", "models/isolation_forest.pkl")
+            threshold = ai_cfg.get("threshold", -0.15)
+            cooldown_seconds = ai_cfg.get("cooldown_seconds", 30)
+
+            feature_extractor = FeatureExtractor()
+            anomaly_detector = AnomalyDetector(
+                model_path=model_path,
+                threshold=threshold,
+            )
+            risk_engine = RiskEngine(
+                cooldown_seconds=cooldown_seconds
+            )
+            print(f"[AI] enabled model={model_path} threshold={threshold}")
+
+        except Exception as e:
+            print(f"[AI] failed to initialize: {e}")
+            ai_enabled = False
+
     incident_mgr = IncidentManager(window_s=120, max_idle_s=300)
     notifier = Notifier(cooldown_s=20)
 
     # Logging Path (config overrides CLI)
-    ROOT = Path(__file__).resolve().parents[1]  # src/ids.py -> netids/
     log_path = cfg.get("log_path", args.log)
 
     log_path = Path(log_path)
@@ -338,7 +487,7 @@ def main() -> int:
 
     try:
         if args.live:
-            run_live(args.iface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier)
+            run_live(args.iface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier,feature_extractor,anomaly_detector,risk_engine)
         else:
             if not args.pcap:
                 print("[!] Choose one: --live OR --pcap <file>")
@@ -350,7 +499,7 @@ def main() -> int:
 
             print(f"[*] Reading PCAP: {pcap_path}")
             for pkt in iter_packets(pcap_path):
-                handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier)
+                handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier,feature_extractor,anomaly_detector,risk_engine)
 
     except KeyboardInterrupt:
         print("\n[*] Stopped.")

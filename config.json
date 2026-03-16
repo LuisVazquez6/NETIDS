@@ -10,7 +10,7 @@
         }
     },
 
-    "icmp_floodp" : {
+    "icmp_flood" : {
         "window_s": 10,
         "thresholds": {
             "low": 2,
@@ -34,5 +34,12 @@
             "medium": 12,
             "high": 30
         }
+    },
+    
+    "ai_detection": {
+        "enabled": true,
+        "model_path": "models/isolation_forest.pkl",
+        "threshold": -0.05,
+        "cooldown_seconds": 30
     }
 }

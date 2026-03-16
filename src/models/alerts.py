@@ -17,3 +17,6 @@ class Alert:
     dst_port: Optional[int] = None
     sensor = str = "ids_victim"
     event_id: Optional[str] = None
+
+    anomaly_score: Optional[float] = None
+    ai_summary: Optional[str] = None

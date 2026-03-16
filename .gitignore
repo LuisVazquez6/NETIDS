@@ -1,0 +1,28 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs (optional — comment out if you want to track alerts)
+logs/*.jsonl
+
+# ML model (large binary — track separately if needed)
+# models/*.pkl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets / config overrides
+*.env
+.env

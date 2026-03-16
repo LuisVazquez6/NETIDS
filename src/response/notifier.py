@@ -43,9 +43,16 @@ class Notifier:
         return True
 
     def notify_console(self, incident: Dict[str, Any]) -> None:
+        sev   = incident.get("severity", "LOW")
+        color = {"HIGH": "\033[91m", "MEDIUM": "\033[93m", "LOW": "\033[92m"}.get(sev, "\033[0m")
+        reset = "\033[0m"
+        bold  = "\033[1m"
         print(
-            f"[INCIDENT] {incident.get('severity')} risk = {incident.get('risk_score')} "
-            f"id ={incident.get('incident_id')} src={incident.get('primary_src_ip')} :: {incident.get('summary')}"
+            f"\n{color}{bold}[INCIDENT]{reset} {color}{sev}{reset}"
+            f" risk={bold}{incident.get('risk_score')}{reset}"
+            f" id={incident.get('incident_id')}"
+            f" src={bold}{incident.get('primary_src_ip')}{reset}"
+            f" :: {incident.get('summary')}"
         )
 
     def notify_webhook(self, incident: Dict[str, Any]) -> None:

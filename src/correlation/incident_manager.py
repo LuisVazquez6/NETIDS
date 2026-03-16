@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import time
 from collections import defaultdict
 
-from models.incidents import Incident, new_incident_id, severity_max
+from models.incidents import Incident, new_incident_id, severity_max, SEVERITY_ORDER
 
 # Basic SOC-style weights (tune anytime)
 ALERT_WEIGHTS = {
@@ -12,7 +12,7 @@ ALERT_WEIGHTS = {
     "SYN_BURST_SUSPECTED": 35,
     "ICMP_FLOOD_SUSPECTED": 25,
     "ICMP_SWEEP_SUSPECTED": 20,
-    "SSH_BRUTE_FORCE_SUSPECTED": 40,
+    "SSH_BRUTEFORCE_SUSPECTED": 40,
 }
 
 SEVERITY_WEIGHT = {"LOW": 10, "MEDIUM": 20, "HIGH": 35}
@@ -28,7 +28,7 @@ DEFAULT_RECS = {
         "Enable SYN cookies / rate limiting if applicable.",
         "Block source if malicious.",
     ],
-    "SSH_BRUTE_FORCE_SUSPECTED": [
+    "SSH_BRUTEFORCE_SUSPECTED": [
         "Check auth logs for failed logins.",
         "Enforce key-based auth and disable password auth.",
         "Consider blocking source and rotating credentials.",
@@ -72,12 +72,30 @@ class IncidentManager:
             if r not in inc.recommendations:
                 inc.recommendations.append(r)
 
-    def ingest(self, alert: Dict[str, Any]) -> Tuple[Incident, bool]:
+    def _is_duplicate(self, inc: Incident, alert_type: str, severity: str) -> bool:
+        """Return True if this alert_type has already been seen at this severity or higher."""
+        seen_sev = inc.alert_severities.get(alert_type)
+        if seen_sev is None:
+            return False
+        return SEVERITY_ORDER.get(seen_sev, 0) >= SEVERITY_ORDER.get(severity, 0)
+
+    def ingest(self, alert: Dict[str, Any]) -> Tuple[Incident, bool, bool]:
         """
-        Returns (incident, is_new_incident)
+        Returns (incident, is_new_incident, escalated).
+
+        Duplicate suppression: an alert is silently dropped when the same
+        alert_type has already been recorded at the same or higher severity
+        within the current incident window.
+
+        Severity escalation: an alert is accepted (and escalated=True is
+        returned) when its severity is strictly higher than what was
+        previously seen for that alert_type, or when the incident's overall
+        severity is promoted.
         """
         now = float(alert.get("ts", time.time()))
         src = alert.get("src_ip", "unknown")
+        atype = alert.get("alert_type", "UNKNOWN")
+        new_sev = alert.get("severity", "LOW")
 
         # expire stale incidents (idle)
         self._expire(now)
@@ -89,7 +107,7 @@ class IncidentManager:
             inc = Incident(
                 incident_id=new_incident_id(),
                 status="OPEN",
-                severity=alert.get("severity", "LOW"),
+                severity=new_sev,
                 risk_score=0,
                 primary_src_ip=src,
                 entities={"src_ip": src},
@@ -98,14 +116,27 @@ class IncidentManager:
             )
             self.open_by_src[src] = inc
 
-        # update incident fields
+        # --- duplicate suppression ---
+        if not is_new and self._is_duplicate(inc, atype, new_sev):
+            # Same alert_type at same/lower severity — touch timestamp but skip
+            inc.last_seen = now
+            self.last_touch[src] = now
+            return inc, False, False
+
+        # --- accept the alert ---
+        prev_incident_severity = inc.severity
+
         inc.last_seen = now
         inc.alert_count += 1
-
-        atype = alert.get("alert_type", "UNKNOWN")
         inc.alert_types[atype] = inc.alert_types.get(atype, 0) + 1
 
-        inc.severity = severity_max(inc.severity, alert.get("severity", "LOW"))
+        # Record highest severity seen per alert_type
+        inc.alert_severities[atype] = severity_max(
+            inc.alert_severities.get(atype, "LOW"), new_sev
+        )
+
+        inc.severity = severity_max(inc.severity, new_sev)
+        escalated = (not is_new) and (inc.severity != prev_incident_severity)
 
         # risk score: max of per-alert score, slightly grows with volume
         inc.risk_score = min(100, max(inc.risk_score, self._score(alert)) + (1 if inc.alert_count % 5 == 0 else 0))
@@ -114,7 +145,7 @@ class IncidentManager:
         inc.timeline.append({
             "ts": now,
             "alert_type": atype,
-            "severity": alert.get("severity", "LOW"),
+            "severity": new_sev,
             "details": alert.get("details", {}),
         })
 
@@ -125,7 +156,7 @@ class IncidentManager:
         self._update_summary(inc)
 
         self.last_touch[src] = now
-        return inc, is_new
+        return inc, is_new, escalated
 
     def _expire(self, now: float) -> None:
         stale = []
