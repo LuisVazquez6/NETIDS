@@ -26,3 +26,4 @@ Thumbs.db
 # Secrets / config overrides
 *.env
 .env
+

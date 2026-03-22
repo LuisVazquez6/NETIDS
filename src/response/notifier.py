@@ -30,8 +30,8 @@ class Notifier:
         return _SEV_ORDER.get(sev,0) >= _SEV_ORDER.get(self.min_severity, 1)
 
     def _key(self, incident: Dict[str, Any]) -> str:
-        inc_id = incident.get("incident_id") or incident.get("id") or "unknow"
-        src = incident.get("primary_src_ip") or incident.get("src_ip") or "unknow"
+        inc_id = incident.get("incident_id") or incident.get("id") or "unknown"
+        src = incident.get("primary_src_ip") or incident.get("src_ip") or "unknown"
         sev = incident.get("severity") or "LOW"
         return f"{inc_id}|{src}|{sev}"
 

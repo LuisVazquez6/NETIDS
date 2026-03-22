@@ -1,242 +1,266 @@
-# NetIDS — Network Intrusion Detection System
+# 🛡️ NetIDS — Lightweight Network Intrusion Detection System
 
-A real-time network intrusion detection system built in Python. NetIDS captures live traffic or replays PCAP files, detects attacks using sliding-window rule-based detectors, correlates alerts into incidents with risk scoring, maps techniques to MITRE ATT&CK, and generates SOC narratives using a local LLM (Ollama/Llama 3.2).
+> A Python-based IDS that detects reconnaissance and attack behavior in real time using rolling time windows and threshold-based logic.
 
----
-
-## Features
-
-- **Live packet capture** via Scapy or offline PCAP replay
-- **4 rule-based detectors** with configurable sliding windows and thresholds
-- **3-tier severity escalation** — LOW → MEDIUM → HIGH per detector
-- **ML anomaly detection** via Isolation Forest
-- **Incident correlation** — groups alerts by source IP into incidents with risk scoring (0–100)
-- **MITRE ATT&CK mapping** for every alert type
-- **IP enrichment** — reverse DNS, service identification, private/public classification
-- **Local LLM integration** — SOC-style narrative via Ollama (Llama 3.2, no cloud dependency)
-- **Alert deduplication** — cooldown per (alert_type, src_ip, severity) to suppress noise
-- **JSONL logging** — append-only, SIEM-ready structured output
-- **Streamlit dashboard** — live SOC monitoring UI
-- **Webhook support** — Discord/Slack notifications
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square&logo=python)
+![Scapy](https://img.shields.io/badge/Scapy-2.5%2B-green?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
+![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square)
 
 ---
 
-## Detection Capabilities
+## 📋 Table of Contents
 
-| Detector | What It Detects | Window | Thresholds (L/M/H) | MITRE |
-|----------|----------------|--------|---------------------|-------|
-| Port Scan | Unique destination ports from one source | 15s | 10 / 20 / 40 ports | T1046 |
-| SYN Burst | High-volume SYN packets (any port) | 8s | 5 / 10 / 13 SYNs | T1498 |
-| ICMP Flood | ICMP echo-request volume | 10s | 2 / 5 / 15 packets | T1498 |
-| SSH Brute Force | SYN-only packets to port 22 | 30s | 5 / 12 / 30 SYNs | T1110 |
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Features](#features)
+- [How It Works](#how-it-works)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Alert Format](#alert-format)
+- [Detection Thresholds](#detection-thresholds)
+- [Project Structure](#project-structure)
 
-Each detector uses a **deque-based sliding window** — timestamps outside the window are evicted on every packet, keeping memory and CPU usage constant regardless of traffic volume.
+---
+
+## Overview
+
+NetIDS is a lightweight, command-line Network Intrusion Detection System built with Python and Scapy. It supports two operation modes:
+
+- **Live Mode** — Sniffs packets directly from a network interface in real time via Scapy's sniff loop
+- **PCAP Mode** — Analyzes pre-captured `.pcap` files for offline forensic investigation via `rdpcap()`
+
+Detection is based on rolling time-window counters and configurable thresholds. All alerts are emitted in **JSON Lines** format for easy parsing and integration with downstream tools. An optional async AI SOC layer uses a local Llama 3.2 model to provide natural-language triage of correlated incidents.
 
 ---
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    NIC["🖥️ NIC (Live)\nScapy sniff loop"]:::teal
+    PCAP["📁 PCAP File\nScapy rdpcap()"]:::teal
+
+    NIC --> IDS
+    PCAP --> IDS
+
+    IDS["⚙️ ids.py\nMain orchestrator · routes per packet"]:::purple
+
+    IDS -->|per packet| DET
+
+    subgraph DET["Detection Layer"]
+        direction LR
+        PS["port_scan\nUnique dst ports"]:::coral
+        SSH["ssh_bruteforce\nAuth attempt rate"]:::coral
+        SYN["syn_burst · icmp\nPacket rate window"]:::coral
+    end
+
+    DET -->|alert objects| ENR
+
+    ENR["🔍 Enrichment Layer\nenrich_ip.py · mitre_mapper.py"]:::blue
+
+    ENR -->|enriched alerts| DEDUP
+
+    DEDUP["🔁 Deduplication\n60s per (type, src, severity)"]:::amber
+    DEDUP --> INC
+    INC["📊 Incident Correlation\n120s window · risk score 0–100"]:::amber
+
+    INC -->|deduplicated alerts| OUT
+
+    subgraph OUT["Output Layer"]
+        direction LR
+        CON["Console\n(colored)"]:::gray
+        LOG["alerts.jsonl\nlogs/"]:::gray
+        DASH["Dashboard\napp.py (Streamlit)"]:::gray
+        WH["Webhooks\nDiscord / Slack"]:::gray
+    end
+
+    OUT -.->|background thread| AI
+
+    AI["🤖 AI SOC Analysis — async\nllama_analyzer.py → Ollama Llama 3.2"]:::green
+
+    classDef teal    fill:#1D9E75,stroke:#0F6E56,color:#E1F5EE
+    classDef purple  fill:#7F77DD,stroke:#534AB7,color:#EEEDFE
+    classDef coral   fill:#D85A30,stroke:#993C1D,color:#FAECE7
+    classDef blue    fill:#378ADD,stroke:#185FA5,color:#E6F1FB
+    classDef amber   fill:#BA7517,stroke:#854F0B,color:#FAEEDA
+    classDef gray    fill:#888780,stroke:#5F5E5A,color:#F1EFE8
+    classDef green   fill:#639922,stroke:#3B6D11,color:#EAF3DE
 ```
-Raw Packets (NIC / PCAP)
-         │
-         ▼
-   ┌─────────────┐
-   │   ids.py    │  ← main orchestrator, Scapy sniff loop
-   └──────┬──────┘
-          │ per packet
-   ┌──────▼──────────────────────────────┐
-   │         Detection Layer             │
-   │  port_scan │ ssh_bruteforce         │
-   │  syn_burst │ icmp_flood             │
-   └──────┬──────────────────────────────┘
-          │ Alert objects
-   ┌──────▼──────────────────────────────┐
-   │       Enrichment Layer              │
-   │  enrich_ip.py + mitre_mapper.py     │
-   └──────┬──────────────────────────────┘
-          │ enriched Alerts
-   ┌──────▼──────────────────────────────┐
-   │     Deduplication / Cooldown        │
-   │   60s per (alert_type, src, sev)    │
-   └──────┬──────────────────────────────┘
-          │ deduplicated Alerts
-   ┌──────▼──────────────────────────────┐
-   │     Incident Correlation            │
-   │  incident_manager.py                │
-   │  groups by src_ip, 120s window      │
-   │  risk score 0–100, expires 300s     │
-   └──────┬──────────────────────────────┘
-          │
-   ┌──────▼──────────────────────────────┐
-   │         Output Layer                │
-   │  console (colored)                  │
-   │  logs/alerts.jsonl                  │
-   │  dashboard/app.py (Streamlit)       │
-   │  webhooks (Discord/Slack)           │
-   └──────┬──────────────────────────────┘
-          │ background thread
-   ┌──────▼──────────────────────────────┐
-   │     AI SOC Analysis (async)         │
-   │  llama_analyzer.py → Ollama         │
-   │  Llama 3.2 local inference          │
-   └─────────────────────────────────────┘
+
+### Layer breakdown
+
+| Layer | Files | Responsibility |
+|---|---|---|
+| **Input** | `ids.py` | Starts Scapy sniff loop or reads PCAP; feeds raw packets to detectors |
+| **Detection** | `port_scan.py`, `ssh_bruteforce.py`, `syn_burst.py`, `icmp_flood.py` | Per-packet evaluation against rolling time-window thresholds |
+| **Enrichment** | `enrich_ip.py`, `mitre_mapper.py` | Adds geo/ASN data and maps alerts to MITRE ATT&CK techniques |
+| **Deduplication** | `dedup.py` | Suppresses repeated alerts for the same (type, src, severity) within 60s |
+| **Incident Correlation** | `incident_manager.py` | Groups alerts by `src_ip` in a 120s window; computes a 0–100 risk score |
+| **Output** | `logger.py`, `app.py`, webhooks | Colored console, JSON Lines log, Streamlit dashboard, Discord/Slack |
+| **AI SOC** | `llama_analyzer.py` | Async background thread — sends incidents to Ollama (Llama 3.2) for triage |
+
+---
+
+## Features
+
+| Feature | Description |
+|---|---|
+| 🔍 **TCP Port Scan Detection** | Tracks unique destination ports per source IP in a rolling window |
+| 🔐 **SSH Brute Force Detection** | Flags abnormal authentication attempt rates against SSH port |
+| 💥 **SYN Burst / SYN Flood Detection** | Detects DoS-indicative SYN packet bursts from a single source |
+| 📡 **ICMP Ping Sweep Detection** | Identifies host-discovery sweeps via ICMP echo request rate |
+| 🎯 **Live Packet Capture** | Real-time sniffing on any interface via Scapy |
+| 📁 **PCAP File Analysis** | Offline forensic analysis of captured traffic |
+| 🔗 **MITRE ATT&CK Mapping** | Enriches alerts with relevant technique IDs |
+| 🤖 **AI SOC Analysis** | Local Llama 3.2 triage of correlated incidents (async, no cloud) |
+| 📝 **JSON Lines Alert Logging** | Structured, timestamped alerts ready for any SIEM pipeline |
+
+---
+
+## How It Works
+
+### Rolling time window
+
+NetIDS tracks per-source-IP events inside a configurable sliding window. When a packet arrives:
+
+1. Retrieve the source IP's event history
+2. Prune events older than the window duration
+3. Append the new event
+4. If the count exceeds the threshold → emit an alert
+
 ```
+Time ──────────────────────────────────────────────────▶
+      [ pruned ] | ←──── window (e.g. 10s) ────→ | now
+                         ^^^^^^^^^^^^^^^^^^^^
+                         Count events here
+                         If count > threshold → ALERT
+```
+
+### Incident correlation & risk scoring
+
+After deduplication, `incident_manager.py` groups alerts from the same `src_ip` within a 120-second window into an **incident**. Each incident receives a risk score (0–100) based on the number and severity of constituent alerts. High-risk incidents are forwarded asynchronously to the AI SOC layer.
+
+---
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/LuisVazquez6/NETIDS.git
+cd NETIDS
+
+# Core dependency
+pip install scapy
+
+# Optional: Streamlit dashboard
+pip install streamlit
+
+# Optional: AI SOC (requires Ollama with Llama 3.2 installed locally)
+pip install ollama
+```
+
+> ⚠️ **Note:** Live packet capture requires root/administrator privileges (`sudo`).
+
+---
+
+## Usage
+
+### Live capture mode
+
+```bash
+sudo python ids.py --mode live --interface eth0
+sudo python ids.py --mode live --interface eth0 --output alerts.jsonl
+```
+
+### PCAP analysis mode
+
+```bash
+python ids.py --mode pcap --file capture.pcap
+python ids.py --mode pcap --file capture.pcap --output results.jsonl
+```
+
+### Streamlit dashboard
+
+```bash
+streamlit run dashboard/app.py
+```
+
+---
+
+## Alert Format
+
+Alerts are written in **JSON Lines** format — one JSON object per line:
+
+```json
+{"timestamp": "2026-03-18T14:23:01Z", "type": "TCP_PORT_SCAN",  "src_ip": "192.168.1.105", "port_count": 142,   "mitre": "T1046", "risk": 72, "window_sec": 10}
+{"timestamp": "2026-03-18T14:23:44Z", "type": "SYN_FLOOD",      "src_ip": "10.0.0.22",     "syn_count": 320,    "mitre": "T1499", "risk": 88, "window_sec": 5}
+{"timestamp": "2026-03-18T14:24:10Z", "type": "ICMP_SWEEP",     "src_ip": "172.16.0.8",    "host_count": 48,    "mitre": "T1018", "risk": 55, "window_sec": 10}
+{"timestamp": "2026-03-18T14:25:02Z", "type": "SSH_BRUTEFORCE", "src_ip": "203.0.113.44",  "attempt_count": 87, "mitre": "T1110", "risk": 91, "window_sec": 30}
+```
+
+| Field | Description |
+|---|---|
+| `timestamp` | ISO 8601 UTC time of alert |
+| `type` | Detection type (`TCP_PORT_SCAN`, `SYN_FLOOD`, `ICMP_SWEEP`, `SSH_BRUTEFORCE`) |
+| `src_ip` | Source IP that triggered the alert |
+| `mitre` | MITRE ATT&CK technique ID |
+| `risk` | Incident risk score (0–100) |
+| `window_sec` | Rolling window size used for detection |
+
+---
+
+## Detection Thresholds
+
+Default thresholds (configurable in `config.py`):
+
+| Detector | Window | Threshold | Trigger condition |
+|---|---|---|---|
+| TCP Port Scan | 10s | 50 ports | > 50 unique dst ports from one src |
+| SYN Flood | 5s | 200 packets | > 200 SYN-only packets from one src |
+| ICMP Sweep | 10s | 20 hosts | > 20 unique dst IPs via ICMP from one src |
+| SSH Brute Force | 30s | 10 attempts | > 10 auth attempts to port 22 from one src |
 
 ---
 
 ## Project Structure
 
 ```
-NETIDS-1/
-├── src/
-│   ├── ids.py                  # Main engine — packet capture, orchestration
-│   ├── rules/
-│   │   ├── port_scan.py        # Port scan detector
-│   │   ├── syn_burst.py        # SYN burst / DoS detector
-│   │   ├── icmp_flood.py       # ICMP flood detector
-│   │   └── ssh_bruteforce.py   # SSH brute force detector
-│   ├── enrichment/
-│   │   ├── enrich_ip.py        # Reverse DNS, service, private/public
-│   │   └── mitre_mapper.py     # Alert type → MITRE ATT&CK technique
-│   ├── correlation/
-│   │   └── incident_manager.py # Groups alerts into incidents, risk scoring
-│   ├── ai/
-│   │   ├── llama_analyzer.py   # Ollama/Llama 3.2 SOC narrative generator
-│   │   ├── feature_extractor.py # Per-source rolling feature vectors
-│   │   └── risk_engine.py      # Isolation Forest anomaly detection
-│   ├── models/
-│   │   └── incidents.py        # Alert and Incident dataclasses
-│   ├── response/
-│   │   └── notifier.py         # Console + webhook notifications
-│   └── dashboard/
-│       └── app.py              # Streamlit SOC dashboard
-├── models/
-│   └── isolation_forest.pkl    # Pre-trained anomaly detection model
+NETIDS/
+├── ids.py                  # Entry point — arg parsing, starts capture mode
+├── config.py               # Thresholds, window sizes, webhook URLs
+├── detectors/
+│   ├── port_scan.py        # TCP port scan detector
+│   ├── ssh_bruteforce.py   # SSH brute force detector
+│   ├── syn_burst.py        # SYN burst / SYN flood detector
+│   └── icmp_flood.py       # ICMP ping sweep detector
+├── enrichment/
+│   ├── enrich_ip.py        # IP geolocation + ASN lookup
+│   └── mitre_mapper.py     # Maps alert types to MITRE ATT&CK IDs
+├── correlation/
+│   ├── dedup.py            # 60s alert deduplication / cooldown
+│   └── incident_manager.py # 120s incident grouping + risk scoring
+├── output/
+│   ├── logger.py           # JSON Lines alert writer
+│   └── webhooks.py         # Discord / Slack notification sender
+├── dashboard/
+│   └── app.py              # Streamlit live dashboard
+├── ai/
+│   └── llama_analyzer.py   # Async Ollama / Llama 3.2 SOC triage
 ├── logs/
-│   └── alerts.jsonl            # SIEM-ready alert log (append-only JSONL)
-├── demo/
-│   └── demo_attack.sh          # Scripted attack sequence for demonstrations
-├── config.json                 # Runtime configuration (thresholds, paths)
-├── requirements.txt
+│   └── alerts.jsonl        # Output alert log (auto-generated)
 └── README.md
 ```
 
 ---
 
-## Requirements
+## Dependencies
 
-- Python 3.8+
-- [Ollama](https://ollama.com) with `llama3.2:3b` pulled
-- `libpcap` / `npcap` for live capture
-- Root/sudo for live packet capture
-
-Install Python dependencies:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Pull the LLM model:
-```bash
-ollama pull llama3.2:3b
-```
+- [Python 3.8+](https://www.python.org/)
+- [Scapy 2.5+](https://scapy.net/) — Packet capture and parsing
+- [Streamlit](https://streamlit.io/) — Dashboard *(optional)*
+- [Ollama](https://ollama.com/) + Llama 3.2 — AI SOC triage *(optional)*
 
 ---
 
-## Running NetIDS
-
-### Live capture
-```bash
-sudo -E .venv/bin/python src/ids.py --live --iface enp0s3
-```
-
-### PCAP replay
-```bash
-.venv/bin/python src/ids.py --pcap capture.pcap
-```
-
-### Streamlit dashboard (separate terminal)
-```bash
-.venv/bin/streamlit run src/dashboard/app.py
-```
-
-### Full setup (3 terminals)
-
-| Terminal | Command |
-|----------|---------|
-| 1 | `ollama serve` |
-| 2 | `sudo -E .venv/bin/python src/ids.py --live --iface enp0s3` |
-| 3 | `.venv/bin/streamlit run src/dashboard/app.py` |
-
----
-
-## Demo
-
-A scripted attack sequence is included for demonstrations. Run from an attacker machine (Kali):
-
-```bash
-sudo bash demo_attack.sh <victim-ip>
-```
-
-The script triggers all 4 detectors in sequence:
-1. ICMP flood → `ICMP_FLOOD_SUSPECTED` MEDIUM → HIGH
-2. Port scan → `PORT_SCAN_SUSPECTED` MEDIUM → HIGH
-3. SYN burst → `SYN_BURST_SUSPECTED` MEDIUM → HIGH
-4. SSH brute force → `SSH_BRUTEFORCE_SUSPECTED` MEDIUM → HIGH
-
-All attacks originate from the same IP, so the incident manager groups them into a single escalating incident.
-
----
-
-## Configuration
-
-All thresholds and windows are configurable in `config.json`:
-
-```json
-{
-  "port_scan":     { "window_s": 15, "thresholds": { "low": 10, "medium": 20, "high": 40 } },
-  "syn_burst":     { "window_s": 8,  "thresholds": { "low": 5,  "medium": 10, "high": 13 } },
-  "icmp_flood":    { "window_s": 10, "thresholds": { "low": 2,  "medium": 5,  "high": 15 } },
-  "ssh_bruteforce":{ "window_s": 30, "thresholds": { "low": 5,  "medium": 12, "high": 30 } },
-  "ai_detection":  { "enabled": true, "model_path": "models/isolation_forest.pkl", "threshold": -0.05 }
-}
-```
-
----
-
-## Alert Output Format
-
-Each alert prints to the console and is appended to `logs/alerts.jsonl`:
-
-```json
-{
-  "ts": 1773446512.66,
-  "alert_type": "SSH_BRUTEFORCE_SUSPECTED",
-  "severity": "HIGH",
-  "src_ip": "192.168.56.102",
-  "dst_ip": "192.168.56.103",
-  "dst_port": 22,
-  "proto": "TCP",
-  "event_id": "37629d33fc24",
-  "mitre_technique": "T1110",
-  "details": { "window_s": 30, "attempts": 30, "thresholds": { "low": 5, "medium": 12, "high": 30 } },
-  "enrichment": { "src_is_private": true, "dst_service": "ssh", "src_reverse_dns": "" },
-  "ai_summary": "192.168.56.102 is brute-forcing SSH on 192.168.56.103",
-  "ai_explanation": "30 SSH login attempts within 30 seconds, consistent with automated credential stuffing.",
-  "ai_recommendation": "Block 192.168.56.102 at the firewall and review /var/log/auth.log for failed logins."
-}
-```
-
----
-
-## Technologies
-
-| Component | Technology |
-|-----------|-----------|
-| Packet capture | Scapy |
-| ML anomaly detection | scikit-learn (Isolation Forest) |
-| LLM integration | Ollama — Llama 3.2 3B (local, no cloud) |
-| Dashboard | Streamlit |
-| Logging | JSONL (SIEM-compatible) |
-| Language | Python 3.8 |
+*NetIDS — Built as a capstone project · [GitHub](https://github.com/LuisVazquez6/NETIDS)*

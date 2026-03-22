@@ -13,4 +13,5 @@ def soc_analysis(alert_dict):
     alert_dict["ai_explanation"] = ai_result.get("explanation")
     alert_dict["ai_recommendation"] = ai_result.get("recommendation")
 
+
     return alert_dict

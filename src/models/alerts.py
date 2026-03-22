@@ -18,5 +18,6 @@ class Alert:
     sensor = str = "ids_victim"
     event_id: Optional[str] = None
 
+
     anomaly_score: Optional[float] = None
     ai_summary: Optional[str] = None

@@ -27,6 +27,7 @@ from typing import Any, Dict, Optional, List
 # handles both live sniffing and reading from pcap files
 from scapy.all import PcapReader, IP, TCP, UDP, ICMP, sniff, conf  # type: ignore
 
+
 # -----------------------
 # Internal imports
 # -----------------------
@@ -44,7 +45,7 @@ from models.alerts import Alert
 from ai.feature_extractor import FeatureExtractor
 from ai.risk_engine import RiskEngine
 from ai.soc_copilot import soc_analysis
-from ai.anomaly_detector import AnomalyDetector
+from rules.anomaly_detector import AnomalyDetector
 
 # -----------------------
 # ANSI colors
@@ -70,6 +71,7 @@ SEV_COLOR = {"HIGH": RED, "MEDIUM": YELLOW, "LOW": GREEN}
 # severity is part of the key so if it escalates from medium to high it still gets through
 ALERT_COOLDOWN_S = 60
 _last_alert_ts = defaultdict(float)
+_last_alert_ts_lock = threading.Lock()
 _AI_SEMAPHORE = threading.Semaphore(1)  # one ollama call at a time
 
 
@@ -86,9 +88,10 @@ def should_emit(a: Alert) -> bool:
         a.severity,
     )
     now = float(a.ts)
-    if now - _last_alert_ts[key] < ALERT_COOLDOWN_S:
-        return False
-    _last_alert_ts[key] = now
+    with _last_alert_ts_lock:
+        if now - _last_alert_ts[key] < ALERT_COOLDOWN_S:
+            return False
+        _last_alert_ts[key] = now
     return True
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import sys
 import time
 import os
 from pathlib import Path
@@ -8,6 +10,11 @@ from datetime import datetime
 from collections import defaultdict
 from functools import wraps
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
+
+# Make sure src/ is on the path so we can import shared modules
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from correlation.incident_manager import ALERT_WEIGHTS, SEVERITY_WEIGHT  # noqa: E402
+from models.incidents import SEVERITY_ORDER  # noqa: E402
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -51,16 +58,25 @@ def read_alerts():
     return alerts
 
 
+def _hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
     if request.method == "POST":
         cfg = load_dashboard_config()
-        username = cfg.get("username", "admin")
-        password = cfg.get("password", "netids2025")
-        if request.form.get("username") == username and request.form.get("password") == password:
+        # Prefer env vars; fall back to config.json values
+        expected_user = os.environ.get("NETIDS_USER") or cfg.get("username", "admin")
+        expected_hash = os.environ.get("NETIDS_PASSWORD_HASH") or _hash(
+            cfg.get("password", "netids2025")
+        )
+        submitted_user = request.form.get("username", "")
+        submitted_hash = _hash(request.form.get("password", ""))
+        if submitted_user == expected_user and submitted_hash == expected_hash:
             session["logged_in"] = True
-            session["username"] = username
+            session["username"] = submitted_user
             return redirect(url_for("index"))
         error = "Invalid credentials"
     return render_template("login.html", error=error)
@@ -150,14 +166,6 @@ def api_incidents():
     # Group alerts by src_ip. Within each group, split into incidents whenever
     # there is a gap of more than 5 minutes between consecutive alerts.
     INCIDENT_GAP_S = 300
-    ALERT_WEIGHTS = {
-        "PORT_SCAN_SUSPECTED": 30,
-        "SYN_BURST_SUSPECTED": 35,
-        "ICMP_FLOOD_SUSPECTED": 25,
-        "SSH_BRUTEFORCE_SUSPECTED": 40,
-    }
-    SEVERITY_WEIGHT = {"LOW": 10, "MEDIUM": 20, "HIGH": 35}
-    SEVERITY_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
     by_src = defaultdict(list)
     for a in alerts:
