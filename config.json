@@ -36,6 +36,41 @@
         }
     },
     
+    "arp_spoof": {
+        "window_s": 30,
+        "thresholds": {
+            "low": 5,
+            "medium": 10,
+            "high": 20
+        }
+    },
+
+    "dns_tunnel": {
+        "window_s": 10,
+        "thresholds": {
+            "low": 15,
+            "medium": 30,
+            "high": 60
+        }
+    },
+
+    "http_bruteforce": {
+        "window_s": 20,
+        "thresholds": {
+            "low": 10,
+            "medium": 20,
+            "high": 50
+        }
+    },
+
+    "slow_loris": {
+        "thresholds": {
+            "low": 10,
+            "medium": 20,
+            "high": 40
+        }
+    },
+
     "ai_detection": {
         "enabled": true,
         "model_path": "models/isolation_forest.pkl",

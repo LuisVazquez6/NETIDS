@@ -15,6 +15,18 @@ MITRE_MAP = {
     # SSH brute force — Brute Force
     "SSH_BRUTEFORCE_SUSPECTED": "T1110",
     "SSH_BRUTE_FORCE": "T1110",
+
+    # ARP spoofing — Adversary-in-the-Middle
+    "ARP_SPOOF_SUSPECTED": "T1557.002",
+
+    # DNS tunneling — Application Layer Protocol: DNS
+    "DNS_TUNNEL_SUSPECTED": "T1071.004",
+
+    # HTTP brute force — Brute Force
+    "HTTP_BRUTEFORCE_SUSPECTED": "T1110",
+
+    # Slow Loris / slow HTTP — Network Denial of Service
+    "SLOW_LORIS_SUSPECTED": "T1499",
 }
 
 

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l /home/ids-victim/NETIDS-2/src/**/*.py)",
+      "Bash(python -c \":*)",
+      "Bash(.venv/bin/python -c \":*)"
+    ]
+  }
+}
