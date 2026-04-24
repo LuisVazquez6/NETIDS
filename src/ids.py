@@ -4,8 +4,7 @@ from __future__ import annotations
 # -----------------------
 # Standard library imports
 # -----------------------
-# just the built in python stuff we need, threading for the async AI calls,
-# hashlib to generate unique event IDs, rest is standard file/cli stuff
+# just the built in python stuff we need
 import os
 import argparse
 import json
@@ -46,10 +45,6 @@ from enrichment.mitre_mapper import map_mitre
 from correlation.incident_manager import IncidentManager
 from response.notifier import Notifier
 from models.alerts import Alert
-from ai.feature_extractor import FeatureExtractor
-from ai.risk_engine import RiskEngine
-from ai.soc_copilot import soc_analysis
-from rules.anomaly_detector import AnomalyDetector
 
 # -----------------------
 # ANSI colors
@@ -76,7 +71,6 @@ SEV_COLOR = {"HIGH": RED, "MEDIUM": YELLOW, "LOW": GREEN}
 ALERT_COOLDOWN_S = 60
 _last_alert_ts = defaultdict(float)
 _last_alert_ts_lock = threading.Lock()
-_AI_SEMAPHORE = threading.Semaphore(1)  # one ollama call at a time
 
 
 def fingerprint(a: Alert) -> str:
@@ -143,10 +137,6 @@ def print_alert_console(a_dict: Dict[str, Any]) -> None:
     severity = a_dict.get("severity", "N/A")
     mitre = a_dict.get("mitre_technique", "N/A")
     event_id = a_dict.get("event_id", "N/A")
-    ai_summary = a_dict.get("ai_summary", "No AI summary available")
-    ai_severity = a_dict.get("ai_severity", "N/A")
-    ai_explanation = a_dict.get("ai_explanation", "No AI explanation available")
-    ai_recommendation = a_dict.get("ai_recommendation", "No recommendation available")
 
     enrichment = a_dict.get("enrichment", {}) or {}
     dst_service = enrichment.get("dst_service", "")
@@ -181,11 +171,6 @@ def print_alert_console(a_dict: Dict[str, Any]) -> None:
         for k, v in details.items():
             print(f"   {DIM}-{RESET} {k}: {v}")
 
-    print(f"\n{BOLD} AI Analysis:{RESET}")
-    print(f"   {DIM}Summary:        {RESET}{ai_summary}")
-    print(f"   {DIM}AI Severity:    {RESET}{c}{ai_severity}{RESET}")
-    print(f"   {DIM}Explanation:    {RESET}{ai_explanation}")
-    print(f"   {DIM}Recommendation: {RESET}{CYAN}{ai_recommendation}{RESET}")
     print(c + "=" * 72 + RESET)
 
 
@@ -221,8 +206,6 @@ def load_config(path: str) -> dict:
 # -----------------------
 # every alert that passes the cooldown check goes through this pipeline:
 # mitre mapping -> ip enrichment -> incident correlation -> print -> log -> AI
-# the AI part runs in a background thread so it never holds up packet processing
-# we use a semaphore to make sure only one ollama request runs at a time
 def emit_alerts(alerts: List[Alert], logger: JSONLLogger, incident_mgr: IncidentManager, notifier: Notifier) -> None:
     for a in alerts:
         if hasattr(a, "event_id") and getattr(a, "event_id") is None:
@@ -245,22 +228,6 @@ def emit_alerts(alerts: List[Alert], logger: JSONLLogger, incident_mgr: Incident
         print_alert_console(a_dict)
         logger.write_dict(a_dict)
 
-        # spin up AI in the background so we dont block on ollama
-        def _ai_background(d: Dict[str, Any]) -> None:
-            with _AI_SEMAPHORE:
-                try:
-                    updated = soc_analysis(d.copy())
-                    eid = d.get("event_id", "")
-                    print(
-                        f"\n{CYAN}[AI]{RESET} event={eid}"
-                        f"\n   Summary:        {updated.get('ai_summary', 'N/A')}"
-                        f"\n   Explanation:    {updated.get('ai_explanation', 'N/A')}"
-                        f"\n   {CYAN}Recommendation: {updated.get('ai_recommendation', 'N/A')}{RESET}"
-                    )
-                except Exception:
-                    pass
-
-        threading.Thread(target=_ai_background, args=(a_dict,), daemon=True).start()
 
 
 # -----------------------
@@ -278,7 +245,7 @@ def iter_packets(pcap_path: Path):
             yield pkt
 
 
-def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, feature_extractor=None, anomaly_detector=None, risk_engine=None, arp_spoof=None, dns_tunnel=None, http_bf=None, slow_loris=None) -> None:
+def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, arp_spoof=None, dns_tunnel=None, http_bf=None, slow_loris=None) -> None:
     stats["total_packets"] += 1
 
     ts = float(getattr(pkt, "time", time.time()))
@@ -377,24 +344,6 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
             if icmp_alerts:
                 emit_alerts(icmp_alerts, logger, incident_mgr, notifier)
 
-    # ML anomaly detection runs on every IP packet if its enabled
-    if feature_extractor and anomaly_detector and risk_engine:
-        try:
-            features = feature_extractor.extract(pkt)
-            if features:
-                ai_result = anomaly_detector.analyze(features)
-                if ai_result.get("is_anomaly"):
-                    ai_alert_dict = risk_engine.build_alert(features, ai_result)
-                    if ai_alert_dict:
-                        logger.write_dict(ai_alert_dict)
-                        print(
-                            f"[AI ALERT] {ai_alert_dict['alert_type']} "
-                            f"src={ai_alert_dict['src_ip']} "
-                            f"severity={ai_alert_dict['severity']} "
-                            f"score={ai_alert_dict['score']:.3f}"
-                        )
-        except Exception as e:
-            print(f"[AI] packet analysis error: {e}", file=sys.stderr)
 
 
 # -----------------------
@@ -402,7 +351,7 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
 # -----------------------
 # two ways to run: live capture on an interface or replay a pcap file
 # live mode just runs until you hit ctrl+c
-def run_live(interface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, feature_extractor=None, anomaly_detector=None, risk_engine=None, arp_spoof=None, dns_tunnel=None, http_bf=None, slow_loris=None) -> None:
+def run_live(interface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, arp_spoof=None, dns_tunnel=None, http_bf=None, slow_loris=None) -> None:
     if interface:
         print(f"[*] Live capture on interface: {interface}")
     else:
@@ -413,7 +362,6 @@ def run_live(interface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, 
             handle_packet(
                 pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf,
                 logger, incident_mgr, notifier,
-                feature_extractor, anomaly_detector, risk_engine,
                 arp_spoof, dns_tunnel, http_bf, slow_loris,
             )
         except Exception as e:
@@ -469,33 +417,6 @@ def main() -> int:
     args = ap.parse_args()
     cfg = load_config(args.config)
     ROOT = Path(__file__).resolve().parents[1]
-
-    # -----------------------
-    # AI / ML initialization
-    # -----------------------
-    # the isolation forest anomaly detector is optional
-    # if it fails to load we just skip it and stick with rule based detection
-    ai_cfg = cfg.get("ai_detection", {})
-    ai_enabled = ai_cfg.get("enabled", False)
-
-    feature_extractor = None
-    anomaly_detector = None
-    risk_engine = None
-
-    if ai_enabled:
-        try:
-            model_path = ai_cfg.get("model_path", "models/isolation_forest.pkl")
-            threshold = ai_cfg.get("threshold", -0.15)
-            cooldown_seconds = ai_cfg.get("cooldown_seconds", 30)
-
-            feature_extractor = FeatureExtractor()
-            anomaly_detector = AnomalyDetector(model_path=model_path, threshold=threshold)
-            risk_engine = RiskEngine(cooldown_seconds=cooldown_seconds)
-            print(f"[AI] enabled model={model_path} threshold={threshold}")
-
-        except Exception as e:
-            print(f"[AI] failed to initialize: {e}")
-            ai_enabled = False
 
     # -----------------------
     # Component initialization
@@ -614,7 +535,6 @@ def main() -> int:
             run_live(
                 args.iface, stats, portscan, icmp_flood, syn_burst, ssh_bf,
                 logger, incident_mgr, notifier,
-                feature_extractor, anomaly_detector, risk_engine,
                 arp_spoof, dns_tunnel, http_bf, slow_loris,
             )
         else:
@@ -630,7 +550,6 @@ def main() -> int:
                 handle_packet(
                     pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf,
                     logger, incident_mgr, notifier,
-                    feature_extractor, anomaly_detector, risk_engine,
                     arp_spoof, dns_tunnel, http_bf, slow_loris,
                 )
 

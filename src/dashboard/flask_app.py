@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import sys
 import time
@@ -17,7 +18,23 @@ from correlation.incident_manager import ALERT_WEIGHTS, SEVERITY_WEIGHT  # noqa:
 from models.incidents import SEVERITY_ORDER  # noqa: E402
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+
+# Persist the secret key so sessions survive restarts.
+_SECRET_KEY_FILE = Path(__file__).resolve().parents[2] / ".flask_secret"
+try:
+    if _SECRET_KEY_FILE.exists():
+        app.secret_key = _SECRET_KEY_FILE.read_bytes()
+    else:
+        _key = os.urandom(32)
+        _SECRET_KEY_FILE.write_bytes(_key)
+        app.secret_key = _key
+except Exception:
+    app.secret_key = os.urandom(32)
+
+# Login rate limiter: max 5 attempts per IP within 60 seconds.
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_LOGIN_MAX = 5
+_LOGIN_WINDOW = 60
 
 ROOT = Path(__file__).resolve().parents[2]
 ALERTS_PATH = ROOT / "logs" / "alerts.jsonl"
@@ -66,6 +83,15 @@ def _hash(value: str) -> str:
 def login():
     error = None
     if request.method == "POST":
+        client_ip = request.remote_addr or "unknown"
+        now = time.time()
+        attempts = _login_attempts[client_ip]
+        # Drop attempts outside the window
+        _login_attempts[client_ip] = [t for t in attempts if now - t < _LOGIN_WINDOW]
+        if len(_login_attempts[client_ip]) >= _LOGIN_MAX:
+            error = "Too many attempts. Try again later."
+            return render_template("login.html", error=error)
+
         cfg = load_dashboard_config()
         # Prefer env vars; fall back to config.json values
         expected_user = os.environ.get("NETIDS_USER") or cfg.get("username", "admin")
@@ -74,10 +100,12 @@ def login():
         )
         submitted_user = request.form.get("username", "")
         submitted_hash = _hash(request.form.get("password", ""))
-        if submitted_user == expected_user and submitted_hash == expected_hash:
+        if submitted_user == expected_user and hmac.compare_digest(submitted_hash, expected_hash):
             session["logged_in"] = True
             session["username"] = submitted_user
+            _login_attempts.pop(client_ip, None)
             return redirect(url_for("index"))
+        _login_attempts[client_ip].append(now)
         error = "Invalid credentials"
     return render_template("login.html", error=error)
 

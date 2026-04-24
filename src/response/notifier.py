@@ -99,5 +99,8 @@ class Notifier:
             headers={"Content-Type":"application/json"},
             method = "POST",
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            resp.read()
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp.read()
+        except Exception as e:
+            print(f"[WEBHOOK] failed to send notification: {e}")

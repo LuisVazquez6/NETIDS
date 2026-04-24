@@ -3,7 +3,17 @@
     "allow": [
       "Bash(wc -l /home/ids-victim/NETIDS-2/src/**/*.py)",
       "Bash(python -c \":*)",
-      "Bash(.venv/bin/python -c \":*)"
+      "Bash(.venv/bin/python -c \":*)",
+      "Bash(grep -E \"\\\\.py$|main|app|run\")",
+      "Bash(mkdir -p \"c:/Users/gamin/NETIDS-1/unused_code\")",
+      "Bash(mv \"c:/Users/gamin/NETIDS-1/src/correlation/incident_engine.py\" \"c:/Users/gamin/NETIDS-1/unused_code/incident_engine.py\")",
+      "Bash(mv \"c:/Users/gamin/NETIDS-1/src/ai/train_anomaly_model.py\" \"c:/Users/gamin/NETIDS-1/unused_code/train_anomaly_model.py\")",
+      "Bash(rm -rf \"c:/Users/gamin/NETIDS-1/src/ai\")",
+      "Bash(rm \"c:/Users/gamin/NETIDS-1/src/rules/anomaly_detector.py\")",
+      "Bash(rm -f \"c:/Users/gamin/NETIDS-1/unused_code/train_anomaly_model.py\")",
+      "Bash(python -c 'import ast, sys *)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('launch.py'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

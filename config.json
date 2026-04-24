@@ -69,12 +69,6 @@
             "medium": 20,
             "high": 40
         }
-    },
-
-    "ai_detection": {
-        "enabled": true,
-        "model_path": "models/isolation_forest.pkl",
-        "threshold": -0.05,
-        "cooldown_seconds": 30
     }
+
 }

@@ -15,9 +15,6 @@ class Alert:
     dst_ip: Optional[str] = None
     proto: Optional[str] = None
     dst_port: Optional[int] = None
-    sensor = str = "ids_victim"
+    sensor: str = "ids_victim"
     event_id: Optional[str] = None
 
-
-    anomaly_score: Optional[float] = None
-    ai_summary: Optional[str] = None
