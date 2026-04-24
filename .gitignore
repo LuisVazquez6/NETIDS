@@ -27,3 +27,20 @@ Thumbs.db
 *.env
 .env
 
+# Remove the pcap files from git tracking
+echo "captures/" >> .gitignore
+echo "*.pcap" >> .gitignore
+echo ".flask_secret" >> .gitignore
+echo ".flask_salt" >> .gitignore
+
+# Remove them from git without deleting the files
+git rm --cached captures/attack.pcap
+git rm --cached capture.pcap
+
+# Commit the fix
+git add .gitignore
+git commit -m "remove large pcap files and secrets from tracking"
+
+# Force push to fix the rejected commit
+git push origin main
+
