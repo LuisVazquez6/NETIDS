@@ -44,3 +44,7 @@ git commit -m "remove large pcap files and secrets from tracking"
 # Force push to fix the rejected commit
 git push origin main
 
+captures/
+*.pcap
+.flask_secret
+.flask_salt
