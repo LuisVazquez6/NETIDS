@@ -15,6 +15,8 @@ class ICMPFloodDetector:
     """
 
     INTERNAL_COOLDOWN_S = 10
+    MAX_TRACKED_IPS = 5000
+    IDLE_EXPIRY_S = 300
 
     def __init__(self, window_s: int = 10, threshold_pkts: int = 50, thresholds: Optional[dict] = None):
         self.window_s = window_s
@@ -26,50 +28,64 @@ class ICMPFloodDetector:
         self.events: Dict[str, Deque[float]] = defaultdict(deque)
         # src_ip -> {severity -> last_fire_ts}
         self._last_fire: Dict[str, Dict[str, float]] = defaultdict(dict)
+        self._last_seen: Dict[str, float] = {}
+
+    def _cleanup(self, now: float) -> None:
+        if len(self._last_seen) < self.MAX_TRACKED_IPS:
+            return
+        cutoff = now - self.IDLE_EXPIRY_S
+        stale = [ip for ip, ts in self._last_seen.items() if ts < cutoff]
+        for ip in stale:
+            self.events.pop(ip, None)
+            self._last_fire.pop(ip, None)
+            del self._last_seen[ip]
 
     def process(self, ts: float, src_ip: str, dst_ip: str) -> List[Alert]:
-        dq = self.events[src_ip]
-        dq.append(ts)
+        try:
+            self._last_seen[src_ip] = ts
+            self._cleanup(ts)
 
-        cutoff = ts - self.window_s
-        while dq and dq[0] < cutoff:
-            dq.popleft()
+            dq = self.events[src_ip]
+            dq.append(ts)
 
-        count = len(dq)
+            cutoff = ts - self.window_s
+            while dq and dq[0] < cutoff:
+                dq.popleft()
 
-        low_th = int(self.thresholds.get("low", max(1, self.threshold_pkts // 2)))
-        if count < low_th:
-            return []
+            count = len(dq)
 
-        default_low = low_th
-        default_medium = int(self.thresholds.get("medium", self.threshold_pkts))
-        default_high = int(self.thresholds.get("high", default_medium * 3))
+            low_th = int(self.thresholds.get("low", max(1, self.threshold_pkts // 2)))
+            if count < low_th:
+                return []
 
-        thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
-        severity = classify(count, thresholds)
+            default_low = low_th
+            default_medium = int(self.thresholds.get("medium", self.threshold_pkts))
+            default_high = int(self.thresholds.get("high", default_medium * 3))
 
-        if severity == "LOW":
-            return []
+            thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
+            severity = classify(count, thresholds)
 
-        if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
-            return []
-        self._last_fire[src_ip][severity] = ts
+            if severity == "LOW":
+                return []
 
-        alert = Alert(
-            ts=ts,
-            alert_type="ICMP_FLOOD_SUSPECTED",
-            severity=severity,
-            src_ip=src_ip,
-            details={
-                "window_s": self.window_s,
-                "pkt_count": count,
-                "thresholds": {
-                    "low": int(thresholds.get("low", low_th)),
-                    "medium": int(thresholds.get("medium", self.threshold_pkts)),
-                    "high": int(thresholds.get("high", int(thresholds.get("medium", self.threshold_pkts)) * 3)),
+            if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
+                return []
+            self._last_fire[src_ip][severity] = ts
+
+            return [Alert(
+                ts=ts,
+                alert_type="ICMP_FLOOD_SUSPECTED",
+                severity=severity,
+                src_ip=src_ip,
+                details={
+                    "window_s": self.window_s,
+                    "pkt_count": count,
+                    "thresholds": {
+                        "low": int(thresholds.get("low", low_th)),
+                        "medium": int(thresholds.get("medium", self.threshold_pkts)),
+                        "high": int(thresholds.get("high", int(thresholds.get("medium", self.threshold_pkts)) * 3)),
+                    },
                 },
-            },
-        )
-
-
-        return [alert]
+            )]
+        except Exception:
+            return []

@@ -36,7 +36,6 @@ from rules.port_scan import PortScanDetector
 from rules.icmp_flood import ICMPFloodDetector
 from rules.syn_burst import SYNBurstDetector
 from rules.ssh_bruteforce import SSHBruteForceDetector
-from rules.arp_spoof import ARPSpoofDetector
 from rules.dns_tunnel import DNSTunnelDetector
 from rules.http_bruteforce import HTTPBruteForceDetector
 from rules.slow_loris import SlowLorisDetector
@@ -206,8 +205,11 @@ def load_config(path: str) -> dict:
 # -----------------------
 # every alert that passes the cooldown check goes through this pipeline:
 # mitre mapping -> ip enrichment -> incident correlation -> print -> log -> AI
-def emit_alerts(alerts: List[Alert], logger: JSONLLogger, incident_mgr: IncidentManager, notifier: Notifier) -> None:
+def emit_alerts(alerts: List[Alert], logger: JSONLLogger, incident_mgr: IncidentManager, notifier: Notifier, whitelist: set = None) -> None:
     for a in alerts:
+        if whitelist and a.src_ip in whitelist:
+            continue
+
         if hasattr(a, "event_id") and getattr(a, "event_id") is None:
             a.event_id = fingerprint(a)  # type: ignore[attr-defined]
 
@@ -245,25 +247,10 @@ def iter_packets(pcap_path: Path):
             yield pkt
 
 
-def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, arp_spoof=None, dns_tunnel=None, http_bf=None, slow_loris=None) -> None:
+def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, dns_tunnel=None, http_bf=None, slow_loris=None, whitelist=None) -> None:
     stats["total_packets"] += 1
 
     ts = float(getattr(pkt, "time", time.time()))
-
-    # --- ARP spoofing detection (no IP layer present on ARP frames) ---
-    if ARP in pkt and arp_spoof is not None:
-        arp = pkt[ARP]
-        src_ip = arp.psrc
-        src_mac = arp.hwsrc
-        dst_mac = arp.hwdst
-        op = int(arp.op)
-        arp_alerts = arp_spoof.process(ts, src_ip, src_mac, dst_mac, op)
-        for a in arp_alerts:
-            setattr(a, "dst_ip", arp.pdst)
-            setattr(a, "dst_port", None)
-            setattr(a, "proto", "ARP")
-        if arp_alerts:
-            emit_alerts(arp_alerts, logger, incident_mgr, notifier)
 
     if IP not in pkt:
         return
@@ -307,7 +294,7 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
             setattr(a, "proto", "TCP")
 
         if tcp_alerts:
-            emit_alerts(tcp_alerts, logger, incident_mgr, notifier)
+            emit_alerts(tcp_alerts, logger, incident_mgr, notifier, whitelist)
 
     elif UDP in pkt:
         stats["udp_packets"] += 1
@@ -327,7 +314,7 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
                         setattr(a, "dst_port", 53)
                         setattr(a, "proto", "UDP/DNS")
                     if dns_alerts:
-                        emit_alerts(dns_alerts, logger, incident_mgr, notifier)
+                        emit_alerts(dns_alerts, logger, incident_mgr, notifier, whitelist)
 
     elif ICMP in pkt:
         stats["icmp_packets"] += 1
@@ -342,7 +329,7 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
                 setattr(a, "proto", "ICMP")
 
             if icmp_alerts:
-                emit_alerts(icmp_alerts, logger, incident_mgr, notifier)
+                emit_alerts(icmp_alerts, logger, incident_mgr, notifier, whitelist)
 
 
 
@@ -351,7 +338,7 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
 # -----------------------
 # two ways to run: live capture on an interface or replay a pcap file
 # live mode just runs until you hit ctrl+c
-def run_live(interface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, arp_spoof=None, dns_tunnel=None, http_bf=None, slow_loris=None) -> None:
+def run_live(interface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, dns_tunnel=None, http_bf=None, slow_loris=None, whitelist=None) -> None:
     if interface:
         print(f"[*] Live capture on interface: {interface}")
     else:
@@ -362,7 +349,7 @@ def run_live(interface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, 
             handle_packet(
                 pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf,
                 logger, incident_mgr, notifier,
-                arp_spoof, dns_tunnel, http_bf, slow_loris,
+                dns_tunnel, http_bf, slow_loris, whitelist,
             )
         except Exception as e:
             print(f"[!] Packet handler error: {e}", file=sys.stderr)
@@ -426,6 +413,10 @@ def main() -> int:
     incident_mgr = IncidentManager(window_s=120, max_idle_s=300)
     notifier = Notifier(cooldown_s=20, auto_block_enabled=args.auto_block)
 
+    whitelist = set(cfg.get("whitelist", []))
+    if whitelist:
+        print(f"[CFG] whitelist={sorted(whitelist)}")
+
     log_path = Path(cfg.get("log_path", args.log))
     if not log_path.is_absolute():
         log_path = ROOT / log_path
@@ -441,7 +432,6 @@ def main() -> int:
     icmp_cfg = cfg.get("icmp_flood", {})
     syn_cfg = cfg.get("syn_burst", {})
     ssh_cfg = cfg.get("ssh_bruteforce", {})
-    arp_cfg = cfg.get("arp_spoof", {})
     dns_cfg = cfg.get("dns_tunnel", {})
     http_cfg = cfg.get("http_bruteforce", {})
     loris_cfg = cfg.get("slow_loris", {})
@@ -450,7 +440,6 @@ def main() -> int:
     icmp_thresholds = pick_thresholds(icmp_cfg.get("thresholds", {}), args.icmp_threshold)
     syn_thresholds = pick_thresholds(syn_cfg.get("thresholds", {}), args.syn_threshold)
     ssh_thresholds = pick_thresholds(ssh_cfg.get("thresholds", {}), args.ssh_threshold)
-    arp_thresholds = pick_thresholds(arp_cfg.get("thresholds", {}), 10)
     dns_thresholds = pick_thresholds(dns_cfg.get("thresholds", {}), 30)
     http_thresholds = pick_thresholds(http_cfg.get("thresholds", {}), 20)
     loris_thresholds = pick_thresholds(loris_cfg.get("thresholds", {}), 20)
@@ -479,12 +468,6 @@ def main() -> int:
     )
     ssh_bf.thresholds = ssh_thresholds
 
-    arp_spoof = ARPSpoofDetector(
-        window_s=_int(arp_cfg.get("window_s"), 30),
-        threshold_gratuitous=arp_thresholds["medium"],
-    )
-    arp_spoof.thresholds = arp_thresholds
-
     dns_tunnel = DNSTunnelDetector(
         window_s=_int(dns_cfg.get("window_s"), 10),
         threshold_queries=dns_thresholds["medium"],
@@ -507,7 +490,6 @@ def main() -> int:
     print(f"[CFG] icmp_flood window_s={icmp_flood.window_s} thresholds={icmp_flood.thresholds}")
     print(f"[CFG] syn_burst window_s={syn_burst.window_s} thresholds={syn_burst.thresholds}")
     print(f"[CFG] ssh_bruteforce window_s={ssh_bf.window_s} thresholds={ssh_bf.thresholds}")
-    print(f"[CFG] arp_spoof window_s={arp_spoof.window_s} thresholds={arp_spoof.thresholds}")
     print(f"[CFG] dns_tunnel window_s={dns_tunnel.window_s} thresholds={dns_tunnel.thresholds}")
     print(f"[CFG] http_bruteforce window_s={http_bf.window_s} thresholds={http_bf.thresholds}")
     print(f"[CFG] slow_loris thresholds={slow_loris.thresholds}")
@@ -535,7 +517,7 @@ def main() -> int:
             run_live(
                 args.iface, stats, portscan, icmp_flood, syn_burst, ssh_bf,
                 logger, incident_mgr, notifier,
-                arp_spoof, dns_tunnel, http_bf, slow_loris,
+                dns_tunnel, http_bf, slow_loris, whitelist,
             )
         else:
             if not args.pcap:
@@ -550,7 +532,7 @@ def main() -> int:
                 handle_packet(
                     pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf,
                     logger, incident_mgr, notifier,
-                    arp_spoof, dns_tunnel, http_bf, slow_loris,
+                    dns_tunnel, http_bf, slow_loris, whitelist,
                 )
 
     except KeyboardInterrupt:

@@ -17,6 +17,8 @@ class PortScanDetector:
     """
 
     INTERNAL_COOLDOWN_S = 10
+    MAX_TRACKED_IPS = 5000
+    IDLE_EXPIRY_S = 300
 
     def __init__(self, window_s: int = 15, threshold_ports: int = 20, thresholds: Optional[dict] = None):
         self.window_s = window_s
@@ -28,55 +30,66 @@ class PortScanDetector:
         self.events: Dict[str, Deque[Tuple[float, str, int]]] = defaultdict(deque)
         # src_ip -> {severity -> last_fire_ts}
         self._last_fire: Dict[str, Dict[str, float]] = defaultdict(dict)
+        self._last_seen: Dict[str, float] = {}
+
+    def _cleanup(self, now: float) -> None:
+        if len(self._last_seen) < self.MAX_TRACKED_IPS:
+            return
+        cutoff = now - self.IDLE_EXPIRY_S
+        stale = [ip for ip, ts in self._last_seen.items() if ts < cutoff]
+        for ip in stale:
+            self.events.pop(ip, None)
+            self._last_fire.pop(ip, None)
+            del self._last_seen[ip]
 
     def process(self, ts: float, src_ip: str, dst_ip: str, dst_port: int) -> List[Alert]:
-        dq = self.events[src_ip]
-        dq.append((ts, dst_ip, dst_port))
+        try:
+            self._last_seen[src_ip] = ts
+            self._cleanup(ts)
 
-        # expire old events
-        cutoff = ts - self.window_s
-        while dq and dq[0][0] < cutoff:
-            dq.popleft()
+            dq = self.events[src_ip]
+            dq.append((ts, dst_ip, dst_port))
 
-        distinct_ports = {p for (_, _, p) in dq}
-        count = len(distinct_ports)
-        
-        recent_sample = list(distinct_ports)[:10]
+            # expire old events
+            cutoff = ts - self.window_s
+            while dq and dq[0][0] < cutoff:
+                dq.popleft()
 
-        # Determine LOW threshold (so LOW alerts are possible)
-        low_th = int(self.thresholds.get("low", max(1, self.threshold_ports // 2)))
-        if count < low_th:
+            distinct_ports = {p for (_, _, p) in dq}
+            count = len(distinct_ports)
+
+            recent_sample = list(distinct_ports)[:10]
+
+            # Determine LOW threshold (so LOW alerts are possible)
+            low_th = int(self.thresholds.get("low", max(1, self.threshold_ports // 2)))
+            if count < low_th:
+                return []
+
+            default_low = low_th
+            default_medium = int(self.thresholds.get("medium", self.threshold_ports))
+            default_high = int(self.thresholds.get("high", default_medium * 3))
+
+            thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
+            severity = classify(count, thresholds)
+
+            if severity == "LOW":
+                return []
+
+            if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
+                return []
+            self._last_fire[src_ip][severity] = ts
+
+            return [Alert(
+                ts=ts,
+                alert_type="PORT_SCAN_SUSPECTED",
+                severity=severity,
+                src_ip=src_ip,
+                details={
+                    "window_s": self.window_s,
+                    "thresholds": thresholds,
+                    "distinct_ports": count,
+                    "recent_target_sample": recent_sample,
+                },
+            )]
+        except Exception:
             return []
-
-        default_low = low_th
-        default_medium = int(self.thresholds.get("medium", self.threshold_ports))
-        default_high = int(self.thresholds.get("high", default_medium * 3))
-
-        thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
-        severity = classify(count, thresholds)
-
-        if severity == "LOW":
-            return []
-
-        if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
-            return []
-        self._last_fire[src_ip][severity] = ts
-
-        alert = Alert(
-            ts=ts,
-            alert_type="PORT_SCAN_SUSPECTED",
-            severity=severity,
-            src_ip=src_ip,
-            details={
-                "window_s": self.window_s,
-                # show thresholds that matter (handy for debugging)
-                "thresholds": thresholds,
-                "distinct_ports": count,
-                "recent_target_sample": recent_sample,
-            },
-        )
-
-        # Important behavior choice:
-        # Clear only on MEDIUM/HIGH so LOW can "build up" into higher severity.
-
-        return [alert]

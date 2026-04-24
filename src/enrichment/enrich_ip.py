@@ -41,14 +41,14 @@ def geoip_lookup(ip: str) -> Dict[str, str]:
     if ip in _geo_cache:
         return _geo_cache[ip]
 
-    empty = {"country": "", "country_code": "", "org": ""}
+    empty = {"country": "", "country_code": "", "org": "", "lat": None, "lon": None}
 
     if is_private(ip):
         _geo_cache[ip] = empty
         return empty
 
     try:
-        url = f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,org"
+        url = f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,org,lat,lon"
         req = urllib.request.Request(url, headers={"User-Agent": "netids/1.0"})
         with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read().decode())
@@ -57,6 +57,8 @@ def geoip_lookup(ip: str) -> Dict[str, str]:
                 "country":      data.get("country", ""),
                 "country_code": data.get("countryCode", ""),
                 "org":          data.get("org", ""),
+                "lat":          data.get("lat", None),
+                "lon":          data.get("lon", None),
             }
         else:
             result = empty
@@ -77,11 +79,13 @@ def enrich_alert_dict(alert: Dict[str, Any]) -> Dict[str, Any]:
 
     alert.setdefault("enrichment", {})
     alert["enrichment"].update({
-        "src_is_private":  is_private(src),
-        "src_reverse_dns": reverse_dns(src) if src else "",
-        "dst_service":     service,
-        "src_country":     geo.get("country", ""),
+        "src_is_private":   is_private(src),
+        "src_reverse_dns":  reverse_dns(src) if src else "",
+        "dst_service":      service,
+        "src_country":      geo.get("country", ""),
         "src_country_code": geo.get("country_code", ""),
-        "src_org":         geo.get("org", ""),
+        "src_org":          geo.get("org", ""),
+        "src_lat":          geo.get("lat"),
+        "src_lon":          geo.get("lon"),
     })
     return alert

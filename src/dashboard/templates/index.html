@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NetIDS — SOC Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -292,6 +294,37 @@
 
   /* ---- no data ---- */
   .no-data { color: #444; text-align: center; padding: 40px; font-style: italic; }
+
+  /* ---- attack map ---- */
+  #attack-map {
+    height: 340px;
+    border-radius: 6px;
+    background: #0a0f1e;
+    z-index: 1;
+  }
+  .leaflet-container { background: #0a0f1e !important; }
+  .map-popup {
+    background: #111827;
+    border: 1px solid #1e2a4a;
+    color: #e0e0e0;
+    font-family: monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 4px;
+  }
+  .leaflet-popup-content-wrapper {
+    background: #111827 !important;
+    border: 1px solid #1e2a4a !important;
+    color: #e0e0e0 !important;
+    box-shadow: 0 0 12px rgba(0,212,255,0.2) !important;
+  }
+  .leaflet-popup-tip { background: #111827 !important; }
+  .leaflet-popup-content { color: #e0e0e0 !important; font-family: monospace; font-size: 12px; }
+  @keyframes markerPulse {
+    0%   { transform: scale(1);   opacity: 1; }
+    50%  { transform: scale(1.5); opacity: 0.6; }
+    100% { transform: scale(1);   opacity: 1; }
+  }
 </style>
 </head>
 <body>
@@ -344,6 +377,12 @@
     <h2>Top Attackers</h2>
     <div id="top-attackers"><div class="no-data">No data yet</div></div>
   </div>
+</div>
+
+<!-- attack map -->
+<div class="panel">
+  <h2>Live Attack Map</h2>
+  <div id="attack-map"></div>
 </div>
 
 <!-- incidents panel -->
@@ -550,11 +589,78 @@
       "Updated " + new Date().toLocaleTimeString();
   }
 
+  // ---- attack map ----
+  const map = L.map("attack-map", { zoomControl: true, attributionControl: false }).setView([20, 0], 2);
+
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    maxZoom: 18,
+  }).addTo(map);
+
+  const SEV_COLORS_MAP = { HIGH: "#ff4757", MEDIUM: "#ffa502", LOW: "#2ed573" };
+  let mapMarkers = {};
+  let mapLines = {};
+
+  function makeMarkerIcon(color) {
+    return L.divIcon({
+      className: "",
+      html: `<div style="
+        width:14px; height:14px;
+        background:${color};
+        border:2px solid #fff;
+        border-radius:50%;
+        box-shadow: 0 0 8px ${color}, 0 0 16px ${color}55;
+        animation: markerPulse 1.8s infinite;
+      "></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+  }
+
+  async function refreshMap() {
+    try {
+      const res = await fetch("/api/geo");
+      const attackers = await res.json();
+
+      attackers.forEach(a => {
+        const color = SEV_COLORS_MAP[a.severity] || "#2ed573";
+        const key = a.ip;
+
+        if (mapMarkers[key]) {
+          mapMarkers[key].setIcon(makeMarkerIcon(color));
+        } else {
+          const marker = L.marker([a.lat, a.lon], { icon: makeMarkerIcon(color) })
+            .addTo(map)
+            .bindPopup(`
+              <b style="color:${color}">${a.ip}</b><br>
+              ${a.country || "Unknown"}<br>
+              ${a.org || ""}<br>
+              <span style="color:#ffa502">Alerts: ${a.count}</span><br>
+              <span style="color:${color}">Severity: ${a.severity}</span>
+            `);
+          mapMarkers[key] = marker;
+        }
+
+        // animated line from attacker to center of map
+        if (!mapLines[key]) {
+          const line = L.polyline([[a.lat, a.lon], [20, 0]], {
+            color: color,
+            weight: 1,
+            opacity: 0.4,
+            dashArray: "5, 8",
+          }).addTo(map);
+          mapLines[key] = line;
+        }
+      });
+    } catch (e) { console.error("map error", e); }
+  }
+
   // ---- boot ----
   initSeverityChart();
   initTimelineChart();
   tick();
+  refreshMap();
   setInterval(tick, 3000);
+  setInterval(refreshMap, 10000);
 </script>
 </body>
 </html>

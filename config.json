@@ -1,52 +1,10 @@
 {
-    "log_path" : "logs/alerts.jsonl",
+    "log_path": "logs/alerts.jsonl",
 
-    "port_scan":{
+    "whitelist": [],
+
+    "port_scan": {
         "window_s": 15,
-        "thresholds": {
-            "low": 10,
-            "medium": 20,
-            "high": 40
-        }
-    },
-
-    "icmp_flood" : {
-        "window_s": 10,
-        "thresholds": {
-            "low": 2,
-            "medium": 5,
-            "high": 15
-        }
-    },
-
-    "syn_burst": {
-        "window_s": 8,
-        "thresholds": {
-            "low": 5,
-            "medium": 10,
-            "high": 13
-        }
-    },
-    "ssh_bruteforce": {
-        "window_s": 30,
-        "thresholds": {
-            "low": 5,
-            "medium": 12,
-            "high": 30
-        }
-    },
-    
-    "arp_spoof": {
-        "window_s": 30,
-        "thresholds": {
-            "low": 5,
-            "medium": 10,
-            "high": 20
-        }
-    },
-
-    "dns_tunnel": {
-        "window_s": 10,
         "thresholds": {
             "low": 15,
             "medium": 30,
@@ -54,12 +12,48 @@
         }
     },
 
+    "icmp_flood": {
+        "window_s": 10,
+        "thresholds": {
+            "low": 10,
+            "medium": 15,
+            "high": 50
+        }
+    },
+
+    "syn_burst": {
+        "window_s": 8,
+        "thresholds": {
+            "low": 8,
+            "medium": 12,
+            "high": 50
+        }
+    },
+
+    "ssh_bruteforce": {
+        "window_s": 30,
+        "thresholds": {
+            "low": 8,
+            "medium": 20,
+            "high": 50
+        }
+    },
+
+    "dns_tunnel": {
+        "window_s": 10,
+        "thresholds": {
+            "low": 20,
+            "medium": 40,
+            "high": 80
+        }
+    },
+
     "http_bruteforce": {
         "window_s": 20,
         "thresholds": {
             "low": 10,
-            "medium": 20,
-            "high": 50
+            "medium": 25,
+            "high": 60
         }
     },
 

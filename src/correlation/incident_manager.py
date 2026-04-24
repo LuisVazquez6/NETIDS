@@ -44,6 +44,22 @@ DEFAULT_RECS = {
     ],
 }
 
+ATTACK_CHAINS = {
+    frozenset({"PORT_SCAN_SUSPECTED", "SSH_BRUTEFORCE_SUSPECTED"}): "Recon → SSH Exploitation",
+    frozenset({"PORT_SCAN_SUSPECTED", "SYN_BURST_SUSPECTED"}): "Recon → SYN Flood",
+    frozenset({"PORT_SCAN_SUSPECTED", "HTTP_BRUTEFORCE_SUSPECTED"}): "Recon → Web Attack",
+    frozenset({"PORT_SCAN_SUSPECTED", "SLOW_LORIS_SUSPECTED"}): "Recon → Slow Loris",
+    frozenset({"SSH_BRUTEFORCE_SUSPECTED", "ARP_SPOOF_SUSPECTED"}): "ARP Poisoning + SSH Attack",
+}
+
+
+def detect_chain(alert_types: set) -> Optional[str]:
+    for chain_set, label in ATTACK_CHAINS.items():
+        if chain_set.issubset(alert_types):
+            return label
+    return None
+
+
 class IncidentManager:
     """
     Groups alerts into incidents by (src_ip) within a time window.
@@ -66,7 +82,11 @@ class IncidentManager:
     def _update_summary(self, inc: Incident) -> None:
         top_types = sorted(inc.alert_types.items(), key=lambda x: x[1], reverse=True)
         top_str = ", ".join([f"{t}({c})" for t, c in top_types[:3]])
-        inc.summary = f"{inc.primary_src_ip} triggered {inc.alert_count} alerts: {top_str}"
+        chain = detect_chain(set(inc.alert_types.keys()))
+        if chain:
+            inc.summary = f"{inc.primary_src_ip} [{chain}] triggered {inc.alert_count} alerts: {top_str}"
+        else:
+            inc.summary = f"{inc.primary_src_ip} triggered {inc.alert_count} alerts: {top_str}"
 
     def _merge_recommendations(self, inc: Incident, alert_type: str) -> None:
         for r in DEFAULT_RECS.get(alert_type, []):

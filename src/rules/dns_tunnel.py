@@ -22,7 +22,9 @@ class DNSTunnelDetector:
     """
 
     INTERNAL_COOLDOWN_S = 10
-    LONG_QUERY_THRESHOLD = 50  # characters in the queried domain name
+    LONG_QUERY_THRESHOLD = 75  # raised from 50 to reduce false positives on legitimate long FQDNs
+    MAX_TRACKED_IPS = 5000
+    IDLE_EXPIRY_S = 300
 
     def __init__(self, window_s: int = 10, threshold_queries: int = 30, thresholds: Optional[dict] = None):
         self.window_s = window_s
@@ -33,74 +35,91 @@ class DNSTunnelDetector:
         self.events: Dict[str, Deque[float]] = defaultdict(deque)
         # src_ip -> {fire_key -> last_fire_ts}
         self._last_fire: Dict[str, Dict[str, float]] = defaultdict(dict)
+        self._last_seen: Dict[str, float] = {}
+
+    def _cleanup(self, now: float) -> None:
+        if len(self._last_seen) < self.MAX_TRACKED_IPS:
+            return
+        cutoff = now - self.IDLE_EXPIRY_S
+        stale = [ip for ip, ts in self._last_seen.items() if ts < cutoff]
+        for ip in stale:
+            self.events.pop(ip, None)
+            self._last_fire.pop(ip, None)
+            del self._last_seen[ip]
 
     def process(self, ts: float, src_ip: str, dst_ip: str, qname: str) -> List[Alert]:
-        dq = self.events[src_ip]
-        dq.append(ts)
+        try:
+            self._last_seen[src_ip] = ts
+            self._cleanup(ts)
 
-        cutoff = ts - self.window_s
-        while dq and dq[0] < cutoff:
-            dq.popleft()
+            dq = self.events[src_ip]
+            dq.append(ts)
 
-        count = len(dq)
-        name_len = len(qname)
-        is_long_query = name_len >= self.LONG_QUERY_THRESHOLD
+            cutoff = ts - self.window_s
+            while dq and dq[0] < cutoff:
+                dq.popleft()
 
-        low_th = int(self.thresholds.get("low", max(1, self.threshold_queries // 2)))
-        rate_triggered = count >= low_th
+            count = len(dq)
+            name_len = len(qname)
+            is_long_query = name_len >= self.LONG_QUERY_THRESHOLD
 
-        if not rate_triggered and not is_long_query:
-            return []
+            low_th = int(self.thresholds.get("low", max(1, self.threshold_queries // 2)))
+            rate_triggered = count >= low_th
 
-        # Long query name alone (low query rate) warrants MEDIUM
-        if is_long_query and not rate_triggered:
-            fire_key = "long_query"
-            if ts - self._last_fire[src_ip].get(fire_key, 0.0) < self.INTERNAL_COOLDOWN_S:
+            if not rate_triggered and not is_long_query:
                 return []
-            self._last_fire[src_ip][fire_key] = ts
+
+            # Long query name alone (low query rate) warrants MEDIUM
+            if is_long_query and not rate_triggered:
+                fire_key = "long_query"
+                if ts - self._last_fire[src_ip].get(fire_key, 0.0) < self.INTERNAL_COOLDOWN_S:
+                    return []
+                self._last_fire[src_ip][fire_key] = ts
+                return [Alert(
+                    ts=ts,
+                    alert_type="DNS_TUNNEL_SUSPECTED",
+                    severity="MEDIUM",
+                    src_ip=src_ip,
+                    details={
+                        "reason": "long_query_name",
+                        "qname": qname,
+                        "name_length": name_len,
+                        "long_query_threshold": self.LONG_QUERY_THRESHOLD,
+                    },
+                )]
+
+            # Rate-based detection
+            default_low = low_th
+            default_medium = int(self.thresholds.get("medium", self.threshold_queries))
+            default_high = int(self.thresholds.get("high", default_medium * 3))
+
+            thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
+            severity = classify(count, thresholds)
+
+            if severity == "LOW":
+                return []
+
+            # Bump severity if long query name is also present
+            if is_long_query and severity == "MEDIUM":
+                severity = "HIGH"
+
+            if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
+                return []
+            self._last_fire[src_ip][severity] = ts
+
             return [Alert(
                 ts=ts,
                 alert_type="DNS_TUNNEL_SUSPECTED",
-                severity="MEDIUM",
+                severity=severity,
                 src_ip=src_ip,
                 details={
-                    "reason": "long_query_name",
-                    "qname": qname,
+                    "reason": "high_query_rate" + ("+long_name" if is_long_query else ""),
+                    "window_s": self.window_s,
+                    "query_count": count,
+                    "thresholds": thresholds,
+                    "last_qname": qname,
                     "name_length": name_len,
-                    "long_query_threshold": self.LONG_QUERY_THRESHOLD,
                 },
             )]
-
-        # Rate-based detection
-        default_low = low_th
-        default_medium = int(self.thresholds.get("medium", self.threshold_queries))
-        default_high = int(self.thresholds.get("high", default_medium * 3))
-
-        thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
-        severity = classify(count, thresholds)
-
-        if severity == "LOW":
+        except Exception:
             return []
-
-        # Bump severity if long query name is also present
-        if is_long_query and severity == "MEDIUM":
-            severity = "HIGH"
-
-        if ts - self._last_fire[src_ip].get(severity, 0.0) < self.INTERNAL_COOLDOWN_S:
-            return []
-        self._last_fire[src_ip][severity] = ts
-
-        return [Alert(
-            ts=ts,
-            alert_type="DNS_TUNNEL_SUSPECTED",
-            severity=severity,
-            src_ip=src_ip,
-            details={
-                "reason": "high_query_rate" + ("+long_name" if is_long_query else ""),
-                "window_s": self.window_s,
-                "query_count": count,
-                "thresholds": thresholds,
-                "last_qname": qname,
-                "name_length": name_len,
-            },
-        )]

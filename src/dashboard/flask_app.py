@@ -14,7 +14,7 @@ from flask import Flask, render_template, jsonify, request, session, redirect, u
 
 # Make sure src/ is on the path so we can import shared modules
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from correlation.incident_manager import ALERT_WEIGHTS, SEVERITY_WEIGHT  # noqa: E402
+from correlation.incident_manager import ALERT_WEIGHTS, SEVERITY_WEIGHT, detect_chain  # noqa: E402
 from models.incidents import SEVERITY_ORDER  # noqa: E402
 
 app = Flask(__name__)
@@ -30,6 +30,17 @@ try:
         app.secret_key = _key
 except Exception:
     app.secret_key = os.urandom(32)
+
+# Persist a password hash salt so hashes survive restarts.
+_SALT_FILE = Path(__file__).resolve().parents[2] / ".flask_salt"
+try:
+    if _SALT_FILE.exists():
+        _HASH_SALT = _SALT_FILE.read_bytes()
+    else:
+        _HASH_SALT = os.urandom(16)
+        _SALT_FILE.write_bytes(_HASH_SALT)
+except Exception:
+    _HASH_SALT = b"netids_fallback_"
 
 # Login rate limiter: max 5 attempts per IP within 60 seconds.
 _login_attempts: dict[str, list[float]] = defaultdict(list)
@@ -76,7 +87,7 @@ def read_alerts():
 
 
 def _hash(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return hashlib.pbkdf2_hmac("sha256", value.encode("utf-8"), _HASH_SALT, 100_000).hex()
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -126,8 +137,24 @@ def index():
 @login_required
 def api_alerts():
     alerts = read_alerts()
-    # return last 100 most recent first
-    alerts = sorted(alerts, key=lambda a: a.get("ts", 0), reverse=True)[:100]
+
+    # Optional filters via query params: ?severity=HIGH&type=PORT_SCAN_SUSPECTED&src=1.2.3.4&limit=200
+    sev_filter = request.args.get("severity", "").upper()
+    type_filter = request.args.get("type", "")
+    src_filter = request.args.get("src", "")
+    try:
+        limit = min(int(request.args.get("limit", 100)), 500)
+    except (ValueError, TypeError):
+        limit = 100
+
+    if sev_filter:
+        alerts = [a for a in alerts if a.get("severity", "").upper() == sev_filter]
+    if type_filter:
+        alerts = [a for a in alerts if a.get("alert_type", "") == type_filter]
+    if src_filter:
+        alerts = [a for a in alerts if a.get("src_ip", "") == src_filter]
+
+    alerts = sorted(alerts, key=lambda a: a.get("ts", 0), reverse=True)[:limit]
     for a in alerts:
         ts = a.get("ts", 0)
         try:
@@ -184,6 +211,38 @@ def api_stats():
     })
 
 
+@app.route("/api/geo")
+@login_required
+def api_geo():
+    alerts = read_alerts()
+    seen = {}
+    for a in alerts:
+        src = a.get("src_ip", "")
+        if not src:
+            continue
+        enrichment = a.get("enrichment", {}) or {}
+        lat = enrichment.get("src_lat")
+        lon = enrichment.get("src_lon")
+        if lat is None or lon is None:
+            continue
+        if src not in seen:
+            seen[src] = {
+                "ip": src,
+                "lat": lat,
+                "lon": lon,
+                "country": enrichment.get("src_country", ""),
+                "org": enrichment.get("src_org", ""),
+                "count": 0,
+                "severity": "LOW",
+            }
+        seen[src]["count"] += 1
+        sev = a.get("severity", "LOW")
+        order = {"LOW": 1, "MEDIUM": 2, "HIGH": 3}
+        if order.get(sev, 0) > order.get(seen[src]["severity"], 0):
+            seen[src]["severity"] = sev
+    return jsonify(list(seen.values()))
+
+
 @app.route("/api/incidents")
 @login_required
 def api_incidents():
@@ -230,12 +289,14 @@ def _build_incident(src, group, weights, sev_weights, sev_order):
         risk = min(100, max(risk, score))
 
     top_types = sorted(type_count.items(), key=lambda x: x[1], reverse=True)
+    chain = detect_chain(set(type_count.keys()))
     return {
         "src_ip": src,
         "severity": max_sev,
         "risk_score": risk,
         "alert_count": len(group),
         "alert_types": [{"type": t, "count": c} for t, c in top_types],
+        "attack_chain": chain,
         "first_seen": group[0].get("ts", 0),
         "last_seen": group[-1].get("ts", 0),
         "first_seen_fmt": datetime.fromtimestamp(float(group[0].get("ts", 0))).strftime("%H:%M:%S"),
