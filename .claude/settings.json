@@ -20,10 +20,29 @@
       "Bash(head -322 /home/ids-victim/NETIDS/logs/alerts.jsonl)",
       "Bash(mv /tmp/alerts_backup.jsonl /home/ids-victim/NETIDS/logs/alerts.jsonl)",
       "Bash(/home/ids-victim/NETIDS/.venv/bin/python3 -m py_compile /home/ids-victim/NETIDS/src/ids.py)",
-      "Bash(/home/ids-victim/NETIDS/.venv/bin/python3 -m py_compile /home/ids-victim/NETIDS/src/dashboard/flask_app.py /home/ids-victim/NETIDS/src/enrichment/enrich_ip.py)"
+      "Bash(/home/ids-victim/NETIDS/.venv/bin/python3 -m py_compile /home/ids-victim/NETIDS/src/dashboard/flask_app.py /home/ids-victim/NETIDS/src/enrichment/enrich_ip.py)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\gamin\\\\NETIDS-2\" -Recurse -Depth 2)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(python -c \"import matplotlib; print\\(matplotlib.__version__\\)\")",
+      "Bash(python generate_chart.py)",
+      "Bash(python generate_conclusion.py)",
+      "Bash(python generate_conclusion_v2.py)",
+      "Bash(python -c \"import qrcode; print\\('ok'\\)\")",
+      "Bash(pip install *)",
+      "Bash(python generate_conclusion_v3.py)",
+      "Bash(python generate_further_info.py)",
+      "Bash(python generate_comparison.py)",
+      "Bash(dir c:\\\\Users\\\\gamin\\\\NETIDS-2 /b)",
+      "Bash(python generate_scapy_logo.py)",
+      "Bash(python generate_logos.py)",
+      "Bash(python generate_flowchart.py)",
+      "Bash(python generate_flowchart_simple.py)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\gamin\\\\NETIDS-2\" -Force | Format-Table Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"Directory\"}else{\"File\"}}}  -AutoSize)"
     ],
     "additionalDirectories": [
-      "/home/ids-victim/NETIDS"
+      "/home/ids-victim/NETIDS",
+      "c:\\Users\\gamin\\NETIDS-2"
     ]
   }
 }

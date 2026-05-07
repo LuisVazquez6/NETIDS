@@ -1,18 +1,17 @@
-# 🛡️ NetIDS — Lightweight Network Intrusion Detection System
+# NetIDS — Network Intrusion Detection System
 
 > A Python-based IDS that detects reconnaissance and attack behavior in real time using rolling time windows and threshold-based logic.
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=flat-square&logo=python)
-![Scapy](https://img.shields.io/badge/Scapy-2.5%2B-green?style=flat-square)
+![Scapy](https://img.shields.io/badge/Scapy-2.7%2B-green?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=flat-square)
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Overview](#overview)
-- [Architecture](#architecture)
 - [Features](#features)
 - [How It Works](#how-it-works)
 - [Installation](#installation)
@@ -20,85 +19,18 @@
 - [Alert Format](#alert-format)
 - [Detection Thresholds](#detection-thresholds)
 - [Project Structure](#project-structure)
+- [Dependencies](#dependencies)
 
 ---
 
 ## Overview
 
-NetIDS is a lightweight, command-line Network Intrusion Detection System built with Python and Scapy. It supports two operation modes:
+NetIDS is a lightweight Network Intrusion Detection System built with Python and Scapy. It supports two operation modes:
 
-- **Live Mode** — Sniffs packets directly from a network interface in real time via Scapy's sniff loop
-- **PCAP Mode** — Analyzes pre-captured `.pcap` files for offline forensic investigation via `rdpcap()`
+- **Live Mode** — Sniffs packets directly from a network interface in real time via Scapy
+- **PCAP Mode** — Analyzes pre-captured `.pcap` / `.pcapng` files for offline investigation
 
-Detection is based on rolling time-window counters and configurable thresholds. All alerts are emitted in **JSON Lines** format for easy parsing and integration with downstream tools. An optional async AI SOC layer uses a local Llama 3.2 model to provide natural-language triage of correlated incidents.
-
----
-
-## Architecture
-
-```mermaid
-flowchart TD
-    NIC["🖥️ NIC (Live)\nScapy sniff loop"]:::teal
-    PCAP["📁 PCAP File\nScapy rdpcap()"]:::teal
-
-    NIC --> IDS
-    PCAP --> IDS
-
-    IDS["⚙️ ids.py\nMain orchestrator · routes per packet"]:::purple
-
-    IDS -->|per packet| DET
-
-    subgraph DET["Detection Layer"]
-        direction LR
-        PS["port_scan\nUnique dst ports"]:::coral
-        SSH["ssh_bruteforce\nAuth attempt rate"]:::coral
-        SYN["syn_burst · icmp\nPacket rate window"]:::coral
-    end
-
-    DET -->|alert objects| ENR
-
-    ENR["🔍 Enrichment Layer\nenrich_ip.py · mitre_mapper.py"]:::blue
-
-    ENR -->|enriched alerts| DEDUP
-
-    DEDUP["🔁 Deduplication\n60s per (type, src, severity)"]:::amber
-    DEDUP --> INC
-    INC["📊 Incident Correlation\n120s window · risk score 0–100"]:::amber
-
-    INC -->|deduplicated alerts| OUT
-
-    subgraph OUT["Output Layer"]
-        direction LR
-        CON["Console\n(colored)"]:::gray
-        LOG["alerts.jsonl\nlogs/"]:::gray
-        DASH["Dashboard\napp.py (Streamlit)"]:::gray
-        WH["Webhooks\nDiscord / Slack"]:::gray
-    end
-
-    OUT -.->|background thread| AI
-
-    AI["🤖 AI SOC Analysis — async\nllama_analyzer.py → Ollama Llama 3.2"]:::green
-
-    classDef teal    fill:#1D9E75,stroke:#0F6E56,color:#E1F5EE
-    classDef purple  fill:#7F77DD,stroke:#534AB7,color:#EEEDFE
-    classDef coral   fill:#D85A30,stroke:#993C1D,color:#FAECE7
-    classDef blue    fill:#378ADD,stroke:#185FA5,color:#E6F1FB
-    classDef amber   fill:#BA7517,stroke:#854F0B,color:#FAEEDA
-    classDef gray    fill:#888780,stroke:#5F5E5A,color:#F1EFE8
-    classDef green   fill:#639922,stroke:#3B6D11,color:#EAF3DE
-```
-
-### Layer breakdown
-
-| Layer | Files | Responsibility |
-|---|---|---|
-| **Input** | `ids.py` | Starts Scapy sniff loop or reads PCAP; feeds raw packets to detectors |
-| **Detection** | `port_scan.py`, `ssh_bruteforce.py`, `syn_burst.py`, `icmp_flood.py` | Per-packet evaluation against rolling time-window thresholds |
-| **Enrichment** | `enrich_ip.py`, `mitre_mapper.py` | Adds geo/ASN data and maps alerts to MITRE ATT&CK techniques |
-| **Deduplication** | `dedup.py` | Suppresses repeated alerts for the same (type, src, severity) within 60s |
-| **Incident Correlation** | `incident_manager.py` | Groups alerts by `src_ip` in a 120s window; computes a 0–100 risk score |
-| **Output** | `logger.py`, `app.py`, webhooks | Colored console, JSON Lines log, Streamlit dashboard, Discord/Slack |
-| **AI SOC** | `llama_analyzer.py` | Async background thread — sends incidents to Ollama (Llama 3.2) for triage |
+Detection is based on rolling time-window counters and configurable per-detector thresholds with three severity tiers (LOW / MEDIUM / HIGH). Alerts are emitted in **JSON Lines** format for easy integration with any SIEM pipeline. A Flask web dashboard provides a real-time incident view.
 
 ---
 
@@ -106,15 +38,25 @@ flowchart TD
 
 | Feature | Description |
 |---|---|
-| 🔍 **TCP Port Scan Detection** | Tracks unique destination ports per source IP in a rolling window |
-| 🔐 **SSH Brute Force Detection** | Flags abnormal authentication attempt rates against SSH port |
-| 💥 **SYN Burst / SYN Flood Detection** | Detects DoS-indicative SYN packet bursts from a single source |
-| 📡 **ICMP Ping Sweep Detection** | Identifies host-discovery sweeps via ICMP echo request rate |
-| 🎯 **Live Packet Capture** | Real-time sniffing on any interface via Scapy |
-| 📁 **PCAP File Analysis** | Offline forensic analysis of captured traffic |
-| 🔗 **MITRE ATT&CK Mapping** | Enriches alerts with relevant technique IDs |
-| 🤖 **AI SOC Analysis** | Local Llama 3.2 triage of correlated incidents (async, no cloud) |
-| 📝 **JSON Lines Alert Logging** | Structured, timestamped alerts ready for any SIEM pipeline |
+| **TCP Port Scan Detection** | Tracks unique destination ports per source IP in a rolling window |
+| **SSH Brute Force Detection** | Flags high SYN-packet rates targeting port 22 |
+| **SYN Burst / SYN Flood Detection** | Detects DoS-indicative SYN packet bursts from a single source |
+| **ICMP Flood Detection** | Identifies ICMP echo request floods from a single source |
+| **DNS Tunneling Detection** | Dual-signal: high query rate OR unusually long query names (>= 75 chars) |
+| **HTTP Brute Force Detection** | Counts repeated POST requests from the same source to the same target |
+| **Slow Loris Detection** | Tracks half-open TCP connections; triggers on excessive concurrent connections |
+| **Live Packet Capture** | Real-time sniffing on any interface via Scapy |
+| **PCAP File Analysis** | Offline forensic analysis of captured traffic |
+| **MITRE ATT&CK Mapping** | Enriches every alert with the relevant technique ID |
+| **IP Enrichment** | Adds geolocation (country, ASN/org) and reverse DNS to each alert |
+| **Incident Correlation** | Groups alerts from the same `src_ip` within a 120s window; computes a 0–100 risk score |
+| **Attack Chain Detection** | Recognizes multi-stage patterns (e.g., Recon → SSH Exploitation) |
+| **Alert Deduplication** | 60-second cooldown per `(alert_type, src_ip, severity)` to prevent alert fatigue |
+| **JSON Lines Alert Logging** | Structured, timestamped alerts written to `logs/alerts.jsonl` |
+| **Colored Console Output** | Severity-colored terminal output (RED = HIGH, YELLOW = MEDIUM, GREEN = LOW) |
+| **Webhook Notifications** | Discord / Slack integration for incident alerts |
+| **Auto-Blocking** | Optional `iptables`-based auto-block of HIGH-severity sources (requires root) |
+| **Flask Dashboard** | Web UI showing live incidents, timelines, and MITRE mappings |
 
 ---
 
@@ -122,24 +64,28 @@ flowchart TD
 
 ### Rolling time window
 
-NetIDS tracks per-source-IP events inside a configurable sliding window. When a packet arrives:
+Each detector tracks per-source-IP events inside a configurable sliding window. On each packet:
 
 1. Retrieve the source IP's event history
 2. Prune events older than the window duration
 3. Append the new event
-4. If the count exceeds the threshold → emit an alert
+4. If the count exceeds a severity threshold → emit an alert
 
 ```
-Time ──────────────────────────────────────────────────▶
-      [ pruned ] | ←──── window (e.g. 10s) ────→ | now
+Time ────────────────────────────────────────────────▶
+      [ pruned ] | ←──── window (e.g. 15s) ────→ | now
                          ^^^^^^^^^^^^^^^^^^^^
                          Count events here
                          If count > threshold → ALERT
 ```
 
+### Severity tiers
+
+Every detector has three configurable thresholds. A single attack can escalate from LOW to MEDIUM to HIGH as it intensifies. The severity is included in the deduplication key, so an escalation always produces a new alert.
+
 ### Incident correlation & risk scoring
 
-After deduplication, `incident_manager.py` groups alerts from the same `src_ip` within a 120-second window into an **incident**. Each incident receives a risk score (0–100) based on the number and severity of constituent alerts. High-risk incidents are forwarded asynchronously to the AI SOC layer.
+After deduplication, `incident_manager.py` groups alerts from the same `src_ip` within a 120-second window into an **incident**. Each incident receives a 0–100 risk score based on the number and severity of constituent alerts. Incidents expire after 300 seconds of inactivity. The correlation layer also checks for predefined **attack chain patterns** (e.g., port scan followed by SYN flood) and flags them on the incident.
 
 ---
 
@@ -150,41 +96,57 @@ After deduplication, `incident_manager.py` groups alerts from the same `src_ip` 
 git clone https://github.com/LuisVazquez6/NETIDS.git
 cd NETIDS
 
-# Core dependency
-pip install scapy
+# Install dependencies
+pip install -r requirments.txt
 
-# Optional: Streamlit dashboard
-pip install streamlit
-
-# Optional: AI SOC (requires Ollama with Llama 3.2 installed locally)
-pip install ollama
+# Or install manually
+pip install scapy flask pandas plotly
 ```
 
-> ⚠️ **Note:** Live packet capture requires root/administrator privileges (`sudo`).
+> **Note:** Live packet capture requires root / administrator privileges.
 
 ---
 
 ## Usage
 
-### Live capture mode
+Run all commands from the `src/` directory (or set `PYTHONPATH` to `src/`).
+
+### Live capture
 
 ```bash
-sudo python ids.py --mode live --interface eth0
-sudo python ids.py --mode live --interface eth0 --output alerts.jsonl
+# Capture on a specific interface
+sudo python src/ids.py --live --iface eth0
+
+# With a custom log path
+sudo python src/ids.py --live --iface eth0 --log /tmp/alerts.jsonl
+
+# Enable auto-blocking of HIGH-severity sources (iptables, requires root)
+sudo python src/ids.py --live --iface eth0 --auto-block
 ```
 
-### PCAP analysis mode
+### PCAP analysis
 
 ```bash
-python ids.py --mode pcap --file capture.pcap
-python ids.py --mode pcap --file capture.pcap --output results.jsonl
+python src/ids.py --pcap capture.pcap
+python src/ids.py --pcap capture.pcap --log results.jsonl
 ```
 
-### Streamlit dashboard
+### Flask dashboard
 
 ```bash
-streamlit run dashboard/app.py
+python src/dashboard/flask_app.py
 ```
+
+### CLI options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--live` | — | Enable live packet capture |
+| `--pcap FILE` | — | Read from a PCAP / PCAPNG file |
+| `--iface IFACE` | system default | Network interface for live mode |
+| `--log PATH` | `logs/alerts.jsonl` | Alert output file (JSON Lines) |
+| `--config PATH` | `config.json` | Config file with thresholds |
+| `--auto-block` | off | Auto-block HIGH sources via iptables |
 
 ---
 
@@ -193,33 +155,37 @@ streamlit run dashboard/app.py
 Alerts are written in **JSON Lines** format — one JSON object per line:
 
 ```json
-{"timestamp": "2026-03-18T14:23:01Z", "type": "TCP_PORT_SCAN",  "src_ip": "192.168.1.105", "port_count": 142,   "mitre": "T1046", "risk": 72, "window_sec": 10}
-{"timestamp": "2026-03-18T14:23:44Z", "type": "SYN_FLOOD",      "src_ip": "10.0.0.22",     "syn_count": 320,    "mitre": "T1499", "risk": 88, "window_sec": 5}
-{"timestamp": "2026-03-18T14:24:10Z", "type": "ICMP_SWEEP",     "src_ip": "172.16.0.8",    "host_count": 48,    "mitre": "T1018", "risk": 55, "window_sec": 10}
-{"timestamp": "2026-03-18T14:25:02Z", "type": "SSH_BRUTEFORCE", "src_ip": "203.0.113.44",  "attempt_count": 87, "mitre": "T1110", "risk": 91, "window_sec": 30}
+{"ts": 1748000000.0, "alert_type": "PORT_SCAN_SUSPECTED", "severity": "HIGH", "src_ip": "192.168.1.105", "dst_ip": "192.168.1.1", "dst_port": 443, "proto": "TCP", "mitre_technique": "T1046", "enrichment": {"src_country": "US", "src_org": "Example ISP"}, "details": {"window_s": 15, "distinct_ports": 65}}
+{"ts": 1748000010.0, "alert_type": "SYN_BURST_DETECTED", "severity": "HIGH", "src_ip": "10.0.0.22", "mitre_technique": "T1499", "details": {"window_s": 8, "syn_count": 55}}
+{"ts": 1748000020.0, "alert_type": "SSH_BRUTEFORCE_SUSPECTED", "severity": "MEDIUM", "src_ip": "203.0.113.44", "mitre_technique": "T1110", "details": {"window_s": 30, "attempt_count": 23}}
+{"ts": 1748000030.0, "alert_type": "DNS_TUNNEL_SUSPECTED", "severity": "HIGH", "src_ip": "172.16.0.8", "mitre_technique": "T1071.004", "details": {"query_name": "aaaaaa...example.com", "reason": "long_name"}}
 ```
 
 | Field | Description |
 |---|---|
-| `timestamp` | ISO 8601 UTC time of alert |
-| `type` | Detection type (`TCP_PORT_SCAN`, `SYN_FLOOD`, `ICMP_SWEEP`, `SSH_BRUTEFORCE`) |
+| `ts` | Unix timestamp of the alert |
+| `alert_type` | Detection type (e.g. `PORT_SCAN_SUSPECTED`, `SSH_BRUTEFORCE_SUSPECTED`) |
+| `severity` | `LOW`, `MEDIUM`, or `HIGH` |
 | `src_ip` | Source IP that triggered the alert |
-| `mitre` | MITRE ATT&CK technique ID |
-| `risk` | Incident risk score (0–100) |
-| `window_sec` | Rolling window size used for detection |
+| `mitre_technique` | MITRE ATT&CK technique ID |
+| `enrichment` | Geolocation and ASN data (when available) |
+| `details` | Detector-specific counts and window size |
 
 ---
 
 ## Detection Thresholds
 
-Default thresholds (configurable in `config.py`):
+Default thresholds from `config.json` (all are configurable):
 
-| Detector | Window | Threshold | Trigger condition |
-|---|---|---|---|
-| TCP Port Scan | 10s | 50 ports | > 50 unique dst ports from one src |
-| SYN Flood | 5s | 200 packets | > 200 SYN-only packets from one src |
-| ICMP Sweep | 10s | 20 hosts | > 20 unique dst IPs via ICMP from one src |
-| SSH Brute Force | 30s | 10 attempts | > 10 auth attempts to port 22 from one src |
+| Detector | Window | LOW | MEDIUM | HIGH | MITRE |
+|---|---|---|---|---|---|
+| TCP Port Scan | 15s | 15 ports | 30 ports | 60 ports | T1046 |
+| SYN Burst | 8s | 8 packets | 12 packets | 50 packets | T1499 |
+| ICMP Flood | 10s | 10 packets | 15 packets | 50 packets | T1018 |
+| SSH Brute Force | 30s | 8 attempts | 20 attempts | 50 attempts | T1110 |
+| DNS Tunneling | 10s | 20 queries | 40 queries | 80 queries | T1071.004 |
+| HTTP Brute Force | 20s | 10 requests | 25 requests | 60 requests | T1110.003 |
+| Slow Loris | — | 10 connections | 20 connections | 40 connections | T1499 |
 
 ---
 
@@ -227,28 +193,38 @@ Default thresholds (configurable in `config.py`):
 
 ```
 NETIDS/
-├── ids.py                  # Entry point — arg parsing, starts capture mode
-├── config.py               # Thresholds, window sizes, webhook URLs
-├── detectors/
-│   ├── port_scan.py        # TCP port scan detector
-│   ├── ssh_bruteforce.py   # SSH brute force detector
-│   ├── syn_burst.py        # SYN burst / SYN flood detector
-│   └── icmp_flood.py       # ICMP ping sweep detector
-├── enrichment/
-│   ├── enrich_ip.py        # IP geolocation + ASN lookup
-│   └── mitre_mapper.py     # Maps alert types to MITRE ATT&CK IDs
-├── correlation/
-│   ├── dedup.py            # 60s alert deduplication / cooldown
-│   └── incident_manager.py # 120s incident grouping + risk scoring
-├── output/
-│   ├── logger.py           # JSON Lines alert writer
-│   └── webhooks.py         # Discord / Slack notification sender
-├── dashboard/
-│   └── app.py              # Streamlit live dashboard
-├── ai/
-│   └── llama_analyzer.py   # Async Ollama / Llama 3.2 SOC triage
+├── src/
+│   ├── ids.py                      # Entry point — arg parsing, packet capture orchestrator
+│   ├── rules/
+│   │   ├── port_scan.py            # TCP port scan detector
+│   │   ├── ssh_bruteforce.py       # SSH brute force detector
+│   │   ├── syn_burst.py            # SYN burst / SYN flood detector
+│   │   ├── icmp_flood.py           # ICMP flood detector
+│   │   ├── dns_tunnel.py           # DNS tunneling detector
+│   │   ├── http_bruteforce.py      # HTTP brute force detector
+│   │   └── slow_loris.py           # Slow Loris detector
+│   ├── enrichment/
+│   │   ├── enrich_ip.py            # IP geolocation + ASN lookup
+│   │   └── mitre_mapper.py         # Maps alert types to MITRE ATT&CK IDs
+│   ├── correlation/
+│   │   └── incident_manager.py     # 120s incident grouping + 0–100 risk scoring
+│   ├── response/
+│   │   └── notifier.py             # Console output, webhook notifications, auto-blocking
+│   ├── models/
+│   │   ├── alerts.py               # Alert dataclass
+│   │   └── incidents.py            # Incident dataclass
+│   ├── utils/
+│   │   └── severity.py             # Severity classification helpers
+│   └── dashboard/
+│       ├── flask_app.py            # Flask web dashboard
+│       └── templates/
+│           ├── index.html          # Main dashboard view
+│           └── login.html          # Login page
+├── config.json                     # Per-detector thresholds and window sizes
+├── requirments.txt                 # Python dependencies
+├── demo_attack.sh                  # Demo script that simulates all 7 attack types
 ├── logs/
-│   └── alerts.jsonl        # Output alert log (auto-generated)
+│   └── alerts.jsonl                # Alert log (auto-generated)
 └── README.md
 ```
 
@@ -257,9 +233,10 @@ NETIDS/
 ## Dependencies
 
 - [Python 3.8+](https://www.python.org/)
-- [Scapy 2.5+](https://scapy.net/) — Packet capture and parsing
-- [Streamlit](https://streamlit.io/) — Dashboard *(optional)*
-- [Ollama](https://ollama.com/) + Llama 3.2 — AI SOC triage *(optional)*
+- [Scapy 2.7+](https://scapy.net/) — Packet capture and parsing
+- [Flask](https://flask.palletsprojects.com/) — Web dashboard
+- [Pandas](https://pandas.pydata.org/) — Alert data processing
+- [Plotly](https://plotly.com/python/) — Dashboard charts
 
 ---
 
