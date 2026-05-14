@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NetIDS — Capstone Expo</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;700;800&family=DM+Sans:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080c0f;
+    --surface: #0d1318;
+    --border: #1a2830;
+    --accent: #00e5ff;
+    --accent2: #00ff9d;
+    --text: #c8d8e0;
+    --muted: #4a6270;
+    --mono: 'Share Tech Mono', monospace;
+    --display: 'Syne', sans-serif;
+    --body: 'DM Sans', sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: var(--body); font-weight: 300; overflow-x: hidden; }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,229,255,0.015) 2px, rgba(0,229,255,0.015) 4px);
+    pointer-events: none; z-index: 9999;
+  }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.2rem 3rem;
+    background: rgba(8,12,15,0.9); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo { font-family: var(--mono); font-size: 1rem; color: var(--accent); letter-spacing: 0.1em; }
+  .nav-logo span { color: var(--muted); }
+  nav ul { display: flex; gap: 2.5rem; list-style: none; }
+  nav ul a { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); text-decoration: none; letter-spacing: 0.12em; text-transform: uppercase; transition: color 0.2s; }
+  nav ul a:hover { color: var(--accent); }
+
+  /* HERO */
+  #hero {
+    min-height: 100vh; display: flex; align-items: center;
+    padding: 0 3rem; position: relative; overflow: hidden;
+  }
+  .hero-grid {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(0,229,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0,229,255,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 30%, transparent 100%);
+  }
+  .radar {
+    position: absolute; right: -80px; top: 50%; transform: translateY(-50%);
+    width: 700px; height: 700px; opacity: 0.12;
+  }
+  .radar-ring {
+    position: absolute; border-radius: 50%; border: 1px solid var(--accent);
+    top: 50%; left: 50%; transform: translate(-50%,-50%);
+    animation: radar-pulse 3s ease-out infinite;
+  }
+  .radar-ring:nth-child(1){width:200px;height:200px;animation-delay:0s}
+  .radar-ring:nth-child(2){width:350px;height:350px;animation-delay:.6s}
+  .radar-ring:nth-child(3){width:500px;height:500px;animation-delay:1.2s}
+  .radar-ring:nth-child(4){width:650px;height:650px;animation-delay:1.8s}
+  @keyframes radar-pulse {
+    0%{opacity:0;transform:translate(-50%,-50%) scale(.95)}
+    30%{opacity:1}
+    100%{opacity:0;transform:translate(-50%,-50%) scale(1.05)}
+  }
+  .radar-sweep {
+    position: absolute; top: 50%; left: 50%;
+    width: 325px; height: 2px; transform-origin: left center;
+    background: linear-gradient(90deg, transparent, var(--accent));
+    animation: sweep 4s linear infinite;
+  }
+  @keyframes sweep { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+  .hero-content { position: relative; z-index: 2; max-width: 760px; }
+  .hero-label {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--accent);
+    letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 1.5rem;
+    opacity: 0; animation: fade-up 0.6s ease forwards 0.2s;
+  }
+  .hero-title {
+    font-family: var(--display); font-size: clamp(3.5rem,8vw,7rem); font-weight: 800;
+    line-height: 0.92; letter-spacing: -0.02em; color: #fff; margin-bottom: 1.8rem;
+    opacity: 0; animation: fade-up 0.7s ease forwards 0.35s;
+  }
+  .hero-title em { font-style: normal; color: var(--accent); }
+  .hero-sub {
+    font-size: 1.05rem; line-height: 1.7; color: var(--muted); max-width: 520px; margin-bottom: 2.5rem;
+    opacity: 0; animation: fade-up 0.7s ease forwards 0.5s;
+  }
+  .hero-tags { display: flex; gap: 0.7rem; flex-wrap: wrap; opacity: 0; animation: fade-up 0.7s ease forwards 0.65s; }
+  .tag {
+    font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em;
+    padding: 0.35rem 0.9rem; border: 1px solid var(--border); color: var(--muted);
+    background: rgba(0,229,255,0.03); border-radius: 2px; text-transform: uppercase;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .tag:hover { border-color: var(--accent); color: var(--accent); }
+  @keyframes fade-up { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+  /* SECTIONS */
+  .section-wrap { padding: 7rem 3rem; }
+  .section-label { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
+  .section-title { font-family: var(--display); font-size: clamp(2rem,4vw,3rem); font-weight: 800; color: #fff; margin-bottom: 1.5rem; letter-spacing: -0.02em; line-height: 1.1; }
+
+  /* ABOUT */
+  #about { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .about-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 5rem; align-items: start; }
+  .about-text p { font-size: 1rem; line-height: 1.8; color: var(--text); margin-bottom: 1rem; }
+  .feature-list { list-style: none; display: flex; flex-direction: column; gap: 1rem; }
+  .feature-item {
+    display: flex; align-items: flex-start; gap: 1rem; padding: 1.1rem 1.3rem;
+    border: 1px solid var(--border); background: var(--bg); border-radius: 4px;
+    transition: border-color 0.25s, background 0.25s;
+  }
+  .feature-item:hover { border-color: var(--accent); background: rgba(0,229,255,0.04); }
+  .feat-icon {
+    font-family: var(--mono); font-size: 0.7rem; color: var(--accent2);
+    background: rgba(0,255,157,0.08); border: 1px solid rgba(0,255,157,0.2);
+    width: 32px; height: 32px; border-radius: 3px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .feat-body strong { display: block; font-family: var(--display); font-weight: 700; font-size: 0.92rem; color: #fff; margin-bottom: 0.2rem; }
+  .feat-body span { font-size: 0.83rem; color: var(--muted); line-height: 1.5; }
+
+  /* VIDEO */
+  #demo { background: var(--bg); }
+  .demo-inner { max-width: 1100px; margin: 0 auto; }
+  .video-placeholder {
+    margin-top: 2.5rem; border: 1px solid var(--border); border-radius: 6px;
+    overflow: hidden; background: var(--surface); position: relative;
+    aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 1.2rem;
+    transition: border-color 0.25s;
+  }
+  .video-placeholder:hover { border-color: var(--accent); }
+  .video-placeholder iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: none; }
+  .video-overlay { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+  .play-btn {
+    width: 72px; height: 72px; border-radius: 50%; border: 2px solid var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,229,255,0.08); transition: background 0.2s, transform 0.2s;
+  }
+  .play-btn:hover { background: rgba(0,229,255,0.18); transform: scale(1.06); }
+  .play-btn svg { fill: var(--accent); width: 26px; height: 26px; margin-left: 4px; }
+  .video-label { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; }
+  .video-placeholder::before {
+    content: ''; position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* POSTER */
+  #poster { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .poster-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center; }
+  .poster-preview {
+    position: relative; border: 1px solid var(--border); border-radius: 4px;
+    overflow: hidden; background: var(--bg); aspect-ratio: 8.5/11;
+    display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 1rem;
+    transition: border-color 0.25s;
+  }
+  .poster-preview:hover { border-color: var(--accent); }
+  .poster-preview::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(0,229,255,0.05) 0%, transparent 50%), repeating-linear-gradient(-45deg, transparent, transparent 20px, rgba(0,229,255,0.02) 20px, rgba(0,229,255,0.02) 21px);
+  }
+  .poster-icon { font-size: 3rem; opacity: 0.4; }
+  .poster-caption { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; text-align: center; }
+  .poster-info p { font-size: 1rem; line-height: 1.8; color: var(--text); margin-bottom: 1.5rem; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 0.6rem;
+    font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.1em; text-transform: uppercase;
+    text-decoration: none; padding: 0.85rem 1.8rem; border: 1px solid var(--accent);
+    color: var(--accent); border-radius: 3px; background: rgba(0,229,255,0.05);
+    transition: background 0.2s, color 0.2s;
+  }
+  .btn:hover { background: var(--accent); color: var(--bg); }
+  .btn svg { width: 14px; height: 14px; fill: currentColor; }
+
+  /* BIO */
+  #bio { background: var(--bg); }
+  .bio-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: auto 1fr; gap: 3.5rem; align-items: start; }
+  .bio-avatar {
+    width: 140px; height: 140px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--surface); display: flex; align-items: center; justify-content: center;
+    font-family: var(--display); font-size: 2.8rem; font-weight: 800; color: var(--accent);
+    letter-spacing: -0.02em; flex-shrink: 0; position: relative; overflow: hidden;
+  }
+  .bio-avatar::after { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(0,229,255,0.1), transparent); }
+  .bio-name { font-family: var(--display); font-size: 2rem; font-weight: 800; color: #fff; margin-bottom: 0.4rem; letter-spacing: -0.02em; }
+  .bio-role { font-family: var(--mono); font-size: 0.8rem; color: var(--accent2); letter-spacing: 0.12em; margin-bottom: 1.5rem; }
+  .bio-text { font-size: 1rem; line-height: 1.8; color: var(--text); max-width: 600px; }
+  .bio-links { display: flex; gap: 1rem; margin-top: 1.8rem; flex-wrap: wrap; }
+  .bio-link {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted); text-decoration: none; display: flex; align-items: center; gap: 0.4rem;
+    border-bottom: 1px solid var(--border); padding-bottom: 2px; transition: color 0.2s, border-color 0.2s;
+  }
+  .bio-link:hover { color: var(--accent); border-color: var(--accent); }
+
+  /* COMMENTS */
+  #comments { background: var(--surface); border-top: 1px solid var(--border); }
+  .comments-inner { max-width: 760px; margin: 0 auto; text-align: center; }
+  .comments-inner .section-title { text-align: center; }
+  .comments-inner > p { color: var(--muted); font-size: 0.95rem; line-height: 1.7; margin-bottom: 2.5rem; }
+  .comment-form { text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 2rem; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+  .form-group { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.5rem; }
+  .form-group label { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+  .form-group input, .form-group textarea {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--body); font-size: 0.9rem;
+    padding: 0.7rem 1rem; border-radius: 3px; outline: none; transition: border-color 0.2s; resize: vertical;
+  }
+  .form-group input:focus, .form-group textarea:focus { border-color: var(--accent); }
+  .form-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 1rem; flex-wrap: wrap; gap: 1rem; }
+  .form-note { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; }
+  .submit-btn {
+    font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 0.75rem 2rem; background: var(--accent); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer; transition: opacity 0.2s, transform 0.15s; font-weight: 600;
+  }
+  .submit-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+  .comments-display { margin-top: 2.5rem; display: flex; flex-direction: column; gap: 1rem; text-align: left; }
+  .comment-card { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1.2rem 1.4rem; animation: fade-up 0.4s ease forwards; }
+  .comment-meta { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 0.6rem; }
+  .comment-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: rgba(0,229,255,0.15); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--display); font-size: 0.75rem; font-weight: 800; color: var(--accent); flex-shrink: 0;
+  }
+  .comment-author { font-family: var(--display); font-size: 0.85rem; font-weight: 700; color: #fff; }
+  .comment-time { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); margin-left: auto; }
+  .comment-body { font-size: 0.88rem; line-height: 1.65; color: var(--text); }
+
+  /* RESULTS */
+  #results { background: var(--bg); }
+  .results-inner { max-width: 1100px; margin: 0 auto; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin: 2.5rem 0 3rem; }
+  .stat-card {
+    border: 1px solid var(--border); background: var(--surface); border-radius: 4px;
+    padding: 1.6rem 1.4rem; text-align: center; transition: border-color 0.25s;
+  }
+  .stat-card:hover { border-color: var(--accent); }
+  .stat-num {
+    font-family: var(--display); font-size: 3rem; font-weight: 800;
+    color: var(--accent); line-height: 1; margin-bottom: 0.5rem;
+  }
+  .stat-num.green { color: var(--accent2); }
+  .stat-label { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; line-height: 1.5; }
+  .results-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 3.5rem; }
+  .result-block h3 { font-family: var(--display); font-size: 1.1rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
+  .result-list { list-style: none; display: flex; flex-direction: column; gap: 0.65rem; }
+  .result-list li {
+    font-size: 0.88rem; color: var(--text); line-height: 1.6;
+    padding-left: 1.2rem; position: relative;
+  }
+  .result-list li::before { content: '›'; position: absolute; left: 0; color: var(--accent); font-family: var(--mono); }
+  .result-list.future li::before { color: var(--accent2); }
+  .refs-row { margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--border); }
+  .refs-row h3 { font-family: var(--display); font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
+  .refs-list { display: flex; flex-wrap: wrap; gap: 0.5rem 2rem; list-style: none; }
+  .refs-list li { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+  .refs-list a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
+  .refs-list a:hover { color: var(--accent); }
+  @media (max-width: 768px) {
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .results-cols { grid-template-columns: 1fr; gap: 2rem; }
+  }
+
+  /* FOOTER */
+  footer { border-top: 1px solid var(--border); padding: 2rem 3rem; display: flex; align-items: center; justify-content: space-between; }
+  .footer-logo { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+  .footer-logo span { color: var(--accent); }
+  .footer-right { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; }
+
+  /* RESPONSIVE */
+  @media (max-width: 768px) {
+    nav { padding: 1rem 1.5rem; }
+    nav ul { gap: 1.2rem; }
+    .section-wrap { padding: 4rem 1.5rem; }
+    #hero { padding: 6rem 1.5rem 4rem; }
+    .about-inner, .poster-inner { grid-template-columns: 1fr; gap: 2.5rem; }
+    .bio-inner { grid-template-columns: 1fr; gap: 2rem; }
+    .bio-avatar { width: 80px; height: 80px; font-size: 1.8rem; }
+    .form-row { grid-template-columns: 1fr; }
+    .radar { display: none; }
+    footer { flex-direction: column; gap: 0.8rem; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">NET<span>/</span>IDS</div>
+  <ul>
+    <li><a href="#about">Background</a></li>
+    <li><a href="#demo">Demo</a></li>
+    <li><a href="#results">Results</a></li>
+    <li><a href="#poster">Poster</a></li>
+    <li><a href="#bio">About</a></li>
+    <li><a href="#comments">Feedback</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="hero-grid"></div>
+  <div class="radar">
+    <div class="radar-ring"></div><div class="radar-ring"></div>
+    <div class="radar-ring"></div><div class="radar-ring"></div>
+    <div class="radar-sweep"></div>
+  </div>
+  <div class="hero-content">
+    <p class="hero-label">// Capstone Expo 2026 &nbsp;&nbsp; COMP 499 &nbsp;&nbsp; Luis Vazquez &nbsp;·&nbsp; Dr. Vida Vakilian</p>
+    <h1 class="hero-title">Net<em>IDS</em></h1>
+    <p class="hero-sub">
+      A modular, Python-based Network Intrusion Detection System that detects 7 attack types in real time — from port scans and SYN floods to DNS tunneling and Slow Loris. Features incident correlation with risk scoring, MITRE ATT&amp;CK mapping, IP geolocation enrichment, and a Flask web dashboard.
+    </p>
+    <div class="hero-tags">
+      <span class="tag">Python</span>
+      <span class="tag">Scapy</span>
+      <span class="tag">Flask Dashboard</span>
+      <span class="tag">MITRE ATT&amp;CK</span>
+      <span class="tag">Live Capture</span>
+      <span class="tag">PCAP Analysis</span>
+      <span class="tag">Incident Correlation</span>
+      <span class="tag">IP Enrichment</span>
+    </div>
+  </div>
+</section>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="section-wrap" style="padding-top:0;padding-bottom:0;">
+    <div class="about-inner section-wrap">
+      <div class="about-text">
+        <p class="section-label">// 01 &nbsp; Project Background</p>
+        <h2 class="section-title">Detecting threats before they escalate</h2>
+        <p>NetIDS was built to address a critical gap in accessible network security tooling. Most IDS solutions are heavyweight, expensive, or require enterprise infrastructure. NetIDS provides serious detection capabilities — in a tool anyone can run from the command line.</p>
+        <p>The system operates in two modes: <strong style="color:#fff;">live packet sniffing</strong> via Scapy for real-time monitoring, and <strong style="color:#fff;">PCAP file analysis</strong> for forensic investigation. Seven independent detection engines run in parallel, each using configurable rolling time-window thresholds with per-source IP tracking.</p>
+        <p>Alerts are automatically enriched with <strong style="color:#fff;">IP geolocation and ASN data</strong>, mapped to <strong style="color:#fff;">MITRE ATT&amp;CK techniques</strong>, and correlated into <strong style="color:#fff;">incidents with 0–100 risk scores</strong>. Output is JSON Lines — structured, machine-readable, and ready for any SIEM or alerting pipeline.</p>
+      </div>
+      <ul class="feature-list">
+        <li class="feature-item">
+          <div class="feat-icon">TCP</div>
+          <div class="feat-body">
+            <strong>TCP Port Scan Detection</strong>
+            <span>Tracks distinct destination ports per source IP within a 15s window. Fires at 15 / 30 / 60 ports (LOW / MEDIUM / HIGH). MITRE T1046.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">SSH</div>
+          <div class="feat-body">
+            <strong>SSH Brute Force Detection</strong>
+            <span>Counts SYN-only packets to port 22 per source within a 30s window. Thresholds: 8 / 20 / 50 attempts. MITRE T1110.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">SYN</div>
+          <div class="feat-body">
+            <strong>SYN Burst / SYN Flood Detection</strong>
+            <span>Detects SYN-only packets (no ACK) per source within an 8s window — a hallmark of DoS attempts. MITRE T1499.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">ICM</div>
+          <div class="feat-body">
+            <strong>ICMP Flood Detection</strong>
+            <span>Monitors ICMP echo requests per source within a 10s window. Catches both flood attacks and reconnaissance ping sweeps. MITRE T1498.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">DNS</div>
+          <div class="feat-body">
+            <strong>DNS Tunneling Detection</strong>
+            <span>Dual-signal: high query rate (20 / 40 / 80 in 10s) AND long query names (&ge;75 chars). Both signals together escalate severity to HIGH. MITRE T1071.004.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">HTT</div>
+          <div class="feat-body">
+            <strong>HTTP Brute Force Detection</strong>
+            <span>Tracks POST requests per (source, destination, port) tuple on ports 80 / 443 / 8080 within a 20s window. MITRE T1110.003.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">SLW</div>
+          <div class="feat-body">
+            <strong>Slow Loris Detection</strong>
+            <span>Counts concurrent half-open TCP connections (SYN seen, no FIN/RST). Connections expire after 120s. Thresholds: 10 / 20 / 40. MITRE T1499.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">COR</div>
+          <div class="feat-body">
+            <strong>Incident Correlation &amp; Risk Scoring</strong>
+            <span>Groups alerts by source IP within a 120s window into scored incidents (0–100). Detects multi-stage attack chains — Recon → SSH, Recon → Flood, Recon → Web Attack.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">ENR</div>
+          <div class="feat-body">
+            <strong>IP Enrichment &amp; MITRE Mapping</strong>
+            <span>Every alert enriched with geolocation, ASN, and reverse DNS via ip-api.com. Automatically mapped to the corresponding MITRE ATT&amp;CK technique ID.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">UI</div>
+          <div class="feat-body">
+            <strong>Flask Web Dashboard</strong>
+            <span>Authenticated web UI (PBKDF2-SHA256, session-based, rate-limited). Live alert and incident tables, filter by severity / type / source IP, Plotly charts.</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- VIDEO -->
+<section id="demo">
+  <div class="section-wrap">
+    <div class="demo-inner">
+      <p class="section-label">// 02 &nbsp; Video Demonstration</p>
+      <h2 class="section-title">See NetIDS in action</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:2.5rem;">
+        <div>
+          <p style="font-family:var(--mono);font-size:0.7rem;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.6rem;">Demo 1</p>
+          <video controls style="width:100%;border-radius:6px;border:1px solid var(--border);background:var(--surface);">
+            <source src="NETIDS DEMO.mp4" type="video/mp4">
+          </video>
+        </div>
+        <div>
+          <p style="font-family:var(--mono);font-size:0.7rem;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase;margin-bottom:0.6rem;">Demo 2</p>
+          <video controls style="width:100%;border-radius:6px;border:1px solid var(--border);background:var(--surface);">
+            <source src="NETIDS DEMO 2.mp4" type="video/mp4">
+          </video>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- POSTER -->
+<section id="poster">
+  <div class="section-wrap">
+    <div class="poster-inner">
+      <div class="poster-preview" style="padding:0;">
+        <iframe src="Poster_LUISVAZQUEZ.pdf" style="position:absolute;inset:0;width:100%;height:100%;border:none;border-radius:4px;" title="NetIDS Capstone Poster"></iframe>
+      </div>
+      <div class="poster-info">
+        <p class="section-label">// 03 &nbsp; Project Poster</p>
+        <h2 class="section-title">Download the capstone poster</h2>
+        <p>The poster provides a visual overview of NetIDS — covering system architecture, all 7 detection engines, the incident correlation pipeline, MITRE ATT&amp;CK mappings, the implementation stack, and evaluation results. Designed for the Capstone Expo audience.</p>
+        <a href="Poster_LUISVAZQUEZ.pdf" class="btn" download>
+          <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          Download Poster (PDF)
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BIO -->
+<section id="bio">
+  <div class="section-wrap">
+    <div class="bio-inner">
+      <div class="bio-avatar">LV</div>
+      <div class="bio-details">
+        <p class="section-label">// 04 &nbsp; Project Creator</p>
+        <h2 class="bio-name">Luis Vazquez</h2>
+        <p class="bio-role">Computer Science Student &nbsp;·&nbsp; Security &amp; Systems</p>
+        <p class="bio-text">
+          Luis is a Computer Science student with a focus on network security and systems programming. NetIDS represents his capstone work — a full-stack IDS built from scratch: seven modular detection engines, an incident correlation layer with risk scoring, MITRE ATT&amp;CK integration, IP geolocation enrichment, and an authenticated Flask web dashboard with live Plotly charts.
+          <br><br>
+          His interests span offensive and defensive security, Python tooling, and building software that solves real infrastructure challenges. After graduation, he aims to pursue a career in cybersecurity engineering or network defense.
+        </p>
+        <div class="bio-links">
+          <a href="https://github.com/LuisVazquez6/NETIDS" class="bio-link" target="_blank">↗ GitHub Repository</a>
+          <a href="mailto:vazquez.luis1998@gmail.com" class="bio-link">↗ Contact</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMMENTS -->
+<section id="comments">
+  <div class="section-wrap">
+    <div class="comments-inner">
+      <p class="section-label">// 05 &nbsp; Feedback</p>
+      <h2 class="section-title">Leave a comment</h2>
+      <p>Questions, feedback, or ideas about NetIDS? Comments are open — your input is welcome.</p>
+      <div class="comment-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="c-name">Your Name</label>
+            <input type="text" id="c-name" placeholder="Jane Smith">
+          </div>
+          <div class="form-group">
+            <label for="c-email">Email (optional)</label>
+            <input type="email" id="c-email" placeholder="you@example.com">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="c-msg">Comment</label>
+          <textarea id="c-msg" rows="4" placeholder="What do you think about NetIDS?"></textarea>
+        </div>
+        <div class="form-footer">
+          <span class="form-note">// Comments are saved in your browser</span>
+          <button class="submit-btn" onclick="submitComment()">Post Comment →</button>
+        </div>
+      </div>
+      <div class="comments-display" id="comments-display"></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-logo">NET<span>/</span>IDS &nbsp;·&nbsp; Capstone Expo 2026</div>
+  <div class="footer-right">Python · Scapy · Flask · Plotly · MITRE ATT&amp;CK</div>
+</footer>
+
+<script>
+  const stored = JSON.parse(localStorage.getItem('netids_comments') || '[]');
+  renderComments(stored);
+
+  function submitComment() {
+    const name = document.getElementById('c-name').value.trim();
+    const msg  = document.getElementById('c-msg').value.trim();
+    if (!name || !msg) { alert('Please enter your name and a comment.'); return; }
+    const comment = { name, body: msg, time: new Date().toLocaleString() };
+    stored.unshift(comment);
+    localStorage.setItem('netids_comments', JSON.stringify(stored));
+    renderComments(stored);
+    document.getElementById('c-name').value = '';
+    document.getElementById('c-email').value = '';
+    document.getElementById('c-msg').value = '';
+  }
+
+  function renderComments(list) {
+    const el = document.getElementById('comments-display');
+    el.innerHTML = list.length === 0 ? '' : list.map(c => `
+      <div class="comment-card">
+        <div class="comment-meta">
+          <div class="comment-avatar">${c.name.charAt(0).toUpperCase()}</div>
+          <span class="comment-author">${esc(c.name)}</span>
+          <span class="comment-time">${esc(c.time)}</span>
+        </div>
+        <p class="comment-body">${esc(c.body)}</p>
+      </div>`).join('');
+  }
+
+  function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Scroll reveal
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) { e.target.style.opacity='1'; e.target.style.transform='translateY(0)'; }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.feature-item, .bio-details, .bio-avatar, .poster-preview').forEach(el => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(16px)';
+    el.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    obs.observe(el);
+  });
+</script>
+</body>
+</html>
