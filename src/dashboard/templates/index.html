@@ -126,6 +126,7 @@
   .stat-card:nth-child(2) { animation-delay: 0.10s; }
   .stat-card:nth-child(3) { animation-delay: 0.15s; }
   .stat-card:nth-child(4) { animation-delay: 0.20s; }
+  .stat-card:nth-child(5) { animation-delay: 0.25s; }
 
   .stat-card .label { font-size: 10px; color: #666; letter-spacing: 1px; text-transform: uppercase; }
   .stat-card .value { font-size: 32px; font-weight: bold; transition: color 0.3s; }
@@ -133,17 +134,20 @@
   .stat-card.high   .value { color: #ff4757; }
   .stat-card.medium .value { color: #ffa502; }
   .stat-card.low    .value { color: #2ed573; }
+  .stat-card.rate   .value { color: #a855f7; }
 
   /* flash when value changes */
   .value.flash-high   { animation: flashHigh 0.6s ease; }
   .value.flash-medium { animation: flashMed  0.6s ease; }
   .value.flash-low    { animation: flashLow  0.6s ease; }
   .value.flash-total  { animation: flashTotal 0.6s ease; }
+  .value.flash-rate   { animation: flashRate  0.6s ease; }
 
   @keyframes flashHigh   { 0%,100% {} 30% { text-shadow: 0 0 18px #ff4757; } }
   @keyframes flashMed    { 0%,100% {} 30% { text-shadow: 0 0 18px #ffa502; } }
   @keyframes flashLow    { 0%,100% {} 30% { text-shadow: 0 0 18px #2ed573; } }
   @keyframes flashTotal  { 0%,100% {} 30% { text-shadow: 0 0 18px #00d4ff; } }
+  @keyframes flashRate   { 0%,100% {} 30% { text-shadow: 0 0 18px #a855f7; } }
 
   /* ---- panels ---- */
   .panel {
@@ -417,13 +421,17 @@
       style="background:#3d0f14;color:#ff4757;border:1px solid #ff4757;padding:5px 16px;font-size:11px;display:none;">
       ■ STOP IDS
     </button>
+    <button onclick="loadDemoData()" id="demo-btn" class="action-btn"
+      style="background:#1a0d2b;color:#a855f7;border:1px solid #a855f7;padding:5px 16px;font-size:11px;margin-left:8px;">
+      ⚡ LOAD DEMO DATA
+    </button>
   </div>
   <!-- detector status row -->
   <div id="ids-detectors" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;"></div>
 </div>
 
 <!-- stat cards -->
-<div class="grid" style="padding-top:16px;">
+<div class="grid" style="padding-top:16px;grid-template-columns:repeat(5,1fr);">
   <div class="stat-card total">
     <div class="label">Total Alerts</div>
     <div class="value" id="stat-total">0</div>
@@ -439,6 +447,10 @@
   <div class="stat-card low">
     <div class="label">Low Severity</div>
     <div class="value" id="stat-low">0</div>
+  </div>
+  <div class="stat-card rate">
+    <div class="label">Alerts / Min</div>
+    <div class="value" id="stat-rate">0</div>
   </div>
 </div>
 
@@ -497,6 +509,62 @@
 <script>
   let severityChart = null;
   let timelineChart = null;
+
+  // ---- audio alert ----
+  let _audioCtx = null;
+  function _getAudioCtx() {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_audioCtx.state === "suspended") _audioCtx.resume();
+    return _audioCtx;
+  }
+  function playAlertSound(severity) {
+    try {
+      const ctx = _getAudioCtx();
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc1.connect(gain); osc2.connect(gain); gain.connect(ctx.destination);
+      if (severity === "HIGH") {
+        osc1.frequency.setValueAtTime(880, now);
+        osc1.frequency.setValueAtTime(660, now + 0.12);
+        osc2.frequency.setValueAtTime(1100, now + 0.05);
+        gain.gain.setValueAtTime(0.28, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        osc1.start(now);       osc1.stop(now + 0.45);
+        osc2.start(now + 0.05); osc2.stop(now + 0.3);
+      } else {
+        osc1.frequency.setValueAtTime(660, now);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        osc1.start(now); osc1.stop(now + 0.25);
+      }
+    } catch(e) {}
+  }
+
+  // ---- demo seed ----
+  async function loadDemoData() {
+    const btn = document.getElementById("demo-btn");
+    btn.disabled = true;
+    btn.textContent = "Loading...";
+    try {
+      const r = await fetch("/api/demo/seed", { method: "POST" }).then(r => r.json());
+      if (r.ok) {
+        knownIds = new Set();
+        lastIncidentsJSON = "";
+        triageMap = {};
+        triggeredTriage.clear();
+        await tick();
+        refreshMap();
+      } else {
+        alert("Demo seed failed: " + (r.error || "unknown"));
+      }
+    } catch(e) { alert("Demo seed error: " + e); }
+    finally {
+      btn.disabled = false;
+      btn.textContent = "⚡ LOAD DEMO DATA";
+    }
+  }
 
   // ---- count-up animation for stat cards ----
   function countUp(el, target, flashClass) {
@@ -595,19 +663,33 @@
 
   // ---- fetch and render alert feed ----
   let knownIds = new Set();
+  let _soundReady = false;
 
   async function refreshAlerts() {
     try {
-      const res = await fetch("/api/alerts");
+      const res = await fetch("/api/alerts?limit=500");
       const alerts = await res.json();
 
-      if (alerts.length === 0) return;
+      // alerts/min — count alerts with ts in the last 60s
+      const nowSec = Date.now() / 1000;
+      const rate = alerts.filter(a => (nowSec - parseFloat(a.ts)) < 60).length;
+      countUp(document.getElementById("stat-rate"), rate, "flash-rate");
+
+      if (alerts.length === 0) { _soundReady = true; return; }
 
       const feed = document.getElementById("alert-feed");
       if (feed.querySelector(".no-data")) feed.innerHTML = "";
 
       const newAlerts = alerts.filter(a => !knownIds.has(a.event_id + a.ts));
       newAlerts.forEach(a => knownIds.add(a.event_id + a.ts));
+
+      // play sound for new HIGH/MEDIUM alerts (skip on first load)
+      if (_soundReady && newAlerts.length > 0) {
+        const topSev = newAlerts.some(a => a.severity === "HIGH") ? "HIGH"
+                     : newAlerts.some(a => a.severity === "MEDIUM") ? "MEDIUM" : null;
+        if (topSev) playAlertSound(topSev);
+      }
+      _soundReady = true;
 
       newAlerts.forEach(a => {
         const sev = a.severity || "LOW";

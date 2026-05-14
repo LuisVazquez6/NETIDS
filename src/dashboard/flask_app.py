@@ -401,6 +401,22 @@ def clear_triage():
     return jsonify({"ok": True})
 
 
+@app.route("/api/demo/seed", methods=["POST"])
+@login_required
+def demo_seed():
+    seed_script = ROOT / "scripts" / "demo_seed.py"
+    if not seed_script.exists():
+        return jsonify({"error": "seed script not found"}), 404
+    try:
+        result = subprocess.run(
+            [sys.executable, str(seed_script), "--clear"],
+            capture_output=True, text=True, timeout=15, cwd=str(ROOT),
+        )
+        return jsonify({"ok": True, "lines": result.stdout.count("\n")})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/ids/status")
 @login_required
 def ids_status():

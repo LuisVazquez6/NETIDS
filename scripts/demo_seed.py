@@ -113,29 +113,37 @@ def build_alerts(now):
         )
 
     # ── Germany (Tor exit) — ICMP Sweep → Port Scan → SYN Flood ─────────────
-    add(DE, "ICMP_SWEEP_SUSPECTED",  "MEDIUM", 480, None, "ICMP", {"unique_hosts": 12, "sample_targets": ["192.168.56.1","192.168.56.2","192.168.56.3"], "window_s": 30})
-    add(DE, "ICMP_SWEEP_SUSPECTED",  "HIGH",   450, None, "ICMP", {"unique_hosts": 32, "sample_targets": ["192.168.56.1","192.168.56.5","192.168.56.10"], "window_s": 30})
-    add(DE, "PORT_SCAN_SUSPECTED",   "MEDIUM", 420, 80,   "TCP",  {"distinct_ports": 28, "window_s": 15})
-    add(DE, "PORT_SCAN_SUSPECTED",   "HIGH",   390, 443,  "TCP",  {"distinct_ports": 65, "window_s": 15})
-    add(DE, "SYN_BURST_SUSPECTED",   "MEDIUM", 360, 80,   "TCP",  {"syn_count": 15, "window_s": 8})
-    add(DE, "SYN_BURST_SUSPECTED",   "HIGH",   330, 80,   "TCP",  {"syn_count": 58, "window_s": 8})
+    add(DE, "ICMP_SWEEP_SUSPECTED",  "LOW",    510, None, "ICMP", {"icmp_count": 6,  "thresholds": {"low": 5, "medium": 10, "high": 30}, "window_s": 30})
+    add(DE, "ICMP_SWEEP_SUSPECTED",  "MEDIUM", 480, None, "ICMP", {"icmp_count": 12, "thresholds": {"low": 5, "medium": 10, "high": 30}, "window_s": 30})
+    add(DE, "ICMP_SWEEP_SUSPECTED",  "HIGH",   450, None, "ICMP", {"icmp_count": 32, "thresholds": {"low": 5, "medium": 10, "high": 30}, "window_s": 30})
+    add(DE, "PORT_SCAN_SUSPECTED",   "LOW",    445, 80,   "TCP",  {"distinct_ports": 18, "thresholds": {"low": 15, "medium": 30, "high": 60}, "window_s": 15})
+    add(DE, "PORT_SCAN_SUSPECTED",   "MEDIUM", 420, 80,   "TCP",  {"distinct_ports": 28, "thresholds": {"low": 15, "medium": 30, "high": 60}, "window_s": 15})
+    add(DE, "PORT_SCAN_SUSPECTED",   "HIGH",   390, 443,  "TCP",  {"distinct_ports": 65, "thresholds": {"low": 15, "medium": 30, "high": 60}, "window_s": 15})
+    add(DE, "SYN_BURST_SUSPECTED",   "LOW",    375, 80,   "TCP",  {"syn_count": 9,  "thresholds": {"low": 8, "medium": 12, "high": 50}, "window_s": 8})
+    add(DE, "SYN_BURST_SUSPECTED",   "MEDIUM", 360, 80,   "TCP",  {"syn_count": 15, "thresholds": {"low": 8, "medium": 12, "high": 50}, "window_s": 8})
+    add(DE, "SYN_BURST_SUSPECTED",   "HIGH",   330, 80,   "TCP",  {"syn_count": 58, "thresholds": {"low": 8, "medium": 12, "high": 50}, "window_s": 8})
 
     # ── United States (Linode VPS) — Lateral Movement ────────────────────────
+    add(US, "LATERAL_MOVEMENT_SUSPECTED", "LOW",    325, 22, "TCP", {"unique_hosts": 5,  "admin_ports": ["SSH"], "sample_targets": ["192.168.56.1","192.168.56.2"], "window_s": 60})
     add(US, "LATERAL_MOVEMENT_SUSPECTED", "MEDIUM", 310, 22, "TCP", {"unique_hosts": 9,  "admin_ports": ["SSH"], "sample_targets": ["192.168.56.1","192.168.56.2","192.168.56.4"], "window_s": 60})
     add(US, "LATERAL_MOVEMENT_SUSPECTED", "HIGH",   270, 22, "TCP", {"unique_hosts": 21, "admin_ports": ["SSH","RDP"], "sample_targets": ["192.168.56.1","192.168.56.3","192.168.56.7"], "window_s": 60})
 
     # ── Russia (Rostelecom) — DNS Tunneling ──────────────────────────────────
-    add(RU, "DNS_TUNNEL_SUSPECTED",  "MEDIUM", 250, 53, "UDP/DNS", {"query_count": 44, "window_s": 10})
-    add(RU, "DNS_TUNNEL_SUSPECTED",  "HIGH",   210, 53, "UDP/DNS", {"query_count": 88, "max_label_len": 78, "window_s": 10})
+    add(RU, "DNS_TUNNEL_SUSPECTED",  "LOW",    265, 53, "UDP/DNS", {"query_count": 25, "thresholds": {"low": 20, "medium": 40, "high": 80}, "window_s": 10})
+    add(RU, "DNS_TUNNEL_SUSPECTED",  "MEDIUM", 250, 53, "UDP/DNS", {"query_count": 44, "thresholds": {"low": 20, "medium": 40, "high": 80}, "window_s": 10})
+    add(RU, "DNS_TUNNEL_SUSPECTED",  "HIGH",   210, 53, "UDP/DNS", {"query_count": 88, "max_label_len": 78, "thresholds": {"low": 20, "medium": 40, "high": 80}, "window_s": 10})
 
-    # ── China (China Telecom) — Web Exploit ──────────────────────────────────
-    add(CN, "WEB_EXPLOIT_SUSPECTED", "HIGH",   190, 5000, "TCP", {"pattern_type": "SQL_INJECTION",  "matched": "' OR '1'='1", "uri": "/login"})
-    add(CN, "WEB_EXPLOIT_SUSPECTED", "MEDIUM", 160, 5000, "TCP", {"pattern_type": "PATH_TRAVERSAL", "matched": "../../../../etc/passwd", "uri": "/login?file=../../../../etc/passwd"})
-    add(CN, "WEB_EXPLOIT_SUSPECTED", "HIGH",   130, 5000, "TCP", {"pattern_type": "CMD_INJECTION",  "matched": "; cat /etc/shadow", "uri": "/admin?cmd=;+cat+/etc/shadow"})
+    # ── China (China Telecom) — Port Probe → Web Exploit ─────────────────────
+    add(CN, "PORT_SCAN_SUSPECTED",   "LOW",    205, 5000, "TCP",  {"distinct_ports": 17, "thresholds": {"low": 15, "medium": 30, "high": 60}, "window_s": 15})
+    add(CN, "WEB_EXPLOIT_SUSPECTED", "LOW",    198, 5000, "TCP",  {"pattern_type": "USER_AGENT_SCAN", "matched": "sqlmap/1.7", "uri": "/login"})
+    add(CN, "WEB_EXPLOIT_SUSPECTED", "HIGH",   190, 5000, "TCP",  {"pattern_type": "SQL_INJECTION",  "matched": "' OR '1'='1", "uri": "/login"})
+    add(CN, "WEB_EXPLOIT_SUSPECTED", "MEDIUM", 160, 5000, "TCP",  {"pattern_type": "PATH_TRAVERSAL", "matched": "../../../../etc/passwd", "uri": "/login?file=../../../../etc/passwd"})
+    add(CN, "WEB_EXPLOIT_SUSPECTED", "HIGH",   130, 5000, "TCP",  {"pattern_type": "CMD_INJECTION",  "matched": "; cat /etc/shadow", "uri": "/admin?cmd=;+cat+/etc/shadow"})
 
     # ── Brazil (Claro) — Slow Loris ──────────────────────────────────────────
-    add(BR, "SLOW_LORIS_SUSPECTED",  "MEDIUM", 100, 80, "TCP", {"half_open_connections": 23})
-    add(BR, "SLOW_LORIS_SUSPECTED",  "HIGH",    45, 80, "TCP", {"half_open_connections": 47})
+    add(BR, "SLOW_LORIS_SUSPECTED",  "LOW",    115, 80, "TCP", {"half_open_connections": 13, "thresholds": {"low": 10, "medium": 20, "high": 40}})
+    add(BR, "SLOW_LORIS_SUSPECTED",  "MEDIUM", 100, 80, "TCP", {"half_open_connections": 23, "thresholds": {"low": 10, "medium": 20, "high": 40}})
+    add(BR, "SLOW_LORIS_SUSPECTED",  "HIGH",    45, 80, "TCP", {"half_open_connections": 47, "thresholds": {"low": 10, "medium": 20, "high": 40}})
 
     alerts.sort(key=lambda a: a["ts"])
     return alerts

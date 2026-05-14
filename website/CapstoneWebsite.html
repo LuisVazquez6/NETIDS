@@ -279,6 +279,152 @@
   .footer-logo span { color: var(--accent); }
   .footer-right { font-family: var(--mono); font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; }
 
+  /* STATS TICKER */
+  .stats-ticker {
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    justify-content: center;
+  }
+  .tick-item {
+    flex: 1;
+    max-width: 220px;
+    text-align: center;
+    padding: 2rem 1.5rem;
+    border-right: 1px solid var(--border);
+  }
+  .tick-item:last-child { border-right: none; }
+  .tick-num {
+    font-family: var(--display);
+    font-size: 3rem;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 0.4rem;
+  }
+  .tick-num.green { color: var(--accent2); }
+  .tick-label {
+    font-family: var(--mono);
+    font-size: 0.63rem;
+    color: var(--muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    line-height: 1.6;
+  }
+
+  /* PIPELINE */
+  #pipeline { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .pipeline-inner { max-width: 1200px; margin: 0 auto; }
+  .pipeline-flow {
+    display: flex;
+    align-items: stretch;
+    margin-top: 3rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+  }
+  .pipe-stage { flex: 1; min-width: 145px; display: flex; flex-direction: column; }
+  .pipe-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.3rem 1rem;
+    text-align: center;
+    flex: 1;
+    transition: border-color 0.25s, background 0.25s;
+  }
+  .pipe-box:hover { border-color: var(--accent); background: rgba(0,229,255,0.03); }
+  .pipe-icon {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.6rem;
+  }
+  .pipe-title {
+    font-family: var(--display);
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 0.8rem;
+  }
+  .pipe-items {
+    list-style: none;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  .pipe-items li {
+    border-top: 1px solid var(--border);
+    padding: 0.22rem 0;
+    line-height: 1.5;
+  }
+  .pipe-items li:first-child { border-top: none; }
+  .pipe-connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.5rem;
+    flex-shrink: 0;
+    margin-top: -0.5rem;
+  }
+  .pipe-connector svg { width: 18px; height: 18px; fill: none; stroke: var(--accent); opacity: 0.45; stroke-width: 2.5; }
+
+  /* MITRE GRID */
+  #mitre { background: var(--bg); border-top: 1px solid var(--border); }
+  .mitre-inner { max-width: 1100px; margin: 0 auto; }
+  .mitre-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1rem;
+    margin-top: 2.5rem;
+  }
+  .mitre-col { display: flex; flex-direction: column; gap: 0.6rem; }
+  .mitre-tactic {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 0.2rem;
+  }
+  .mitre-card {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.9rem 1rem;
+    background: var(--surface);
+    transition: border-color 0.25s, background 0.25s;
+  }
+  .mitre-card.covered { border-color: rgba(0,229,255,0.35); background: rgba(0,229,255,0.05); }
+  .mitre-card.covered:hover { border-color: var(--accent); background: rgba(0,229,255,0.1); }
+  .mitre-id {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+    letter-spacing: 0.05em;
+  }
+  .mitre-card:not(.covered) .mitre-id { color: var(--muted); opacity: 0.5; }
+  .mitre-name { font-size: 0.78rem; color: #fff; line-height: 1.4; }
+  .mitre-card:not(.covered) .mitre-name { color: var(--muted); opacity: 0.35; }
+  .mitre-detector { font-family: var(--mono); font-size: 0.6rem; color: var(--accent2); margin-top: 0.45rem; }
+  .mitre-legend {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    align-items: center;
+  }
+  .legend-dot {
+    width: 10px; height: 10px; border-radius: 2px;
+    display: inline-block; margin-right: 0.4rem; vertical-align: middle;
+  }
+
   /* RESPONSIVE */
   @media (max-width: 768px) {
     nav { padding: 1rem 1.5rem; }
@@ -291,6 +437,11 @@
     .form-row { grid-template-columns: 1fr; }
     .radar { display: none; }
     footer { flex-direction: column; gap: 0.8rem; text-align: center; }
+    .pipeline-flow { flex-direction: column; }
+    .pipe-connector { transform: rotate(90deg); padding: 0.3rem 0; }
+    .mitre-grid { grid-template-columns: 1fr 1fr; }
+    .stats-ticker { flex-wrap: wrap; }
+    .tick-item { min-width: 45%; border-right: none; border-bottom: 1px solid var(--border); }
   }
 </style>
 </head>
@@ -300,8 +451,10 @@
   <div class="nav-logo">NET<span>/</span>IDS</div>
   <ul>
     <li><a href="#about">Background</a></li>
+    <li><a href="#pipeline">Pipeline</a></li>
     <li><a href="#demo">Demo</a></li>
     <li><a href="#results">Results</a></li>
+    <li><a href="#mitre">MITRE</a></li>
     <li><a href="#poster">Poster</a></li>
     <li><a href="#bio">About</a></li>
     <li><a href="#comments">Feedback</a></li>
@@ -320,11 +473,12 @@
     <p class="hero-label">// Capstone Expo 2026 &nbsp;&nbsp; COMP 499 &nbsp;&nbsp; Luis Vazquez &nbsp;·&nbsp; Dr. Vida Vakilian</p>
     <h1 class="hero-title">Net<em>IDS</em></h1>
     <p class="hero-sub">
-      A modular, Python-based Network Intrusion Detection System that detects 7 attack types in real time — from port scans and SYN floods to DNS tunneling and Slow Loris. Features incident correlation with risk scoring, MITRE ATT&amp;CK mapping, IP geolocation enrichment, and a Flask web dashboard.
+      A modular, Python-based Network Intrusion Detection System that detects 7 attack types in real time — from port scans and SYN floods to DNS tunneling and Slow Loris. Features AI-powered triage via Claude Haiku, incident correlation with risk scoring, MITRE ATT&amp;CK mapping, IP geolocation enrichment, and a live SOC web dashboard.
     </p>
     <div class="hero-tags">
       <span class="tag">Python</span>
       <span class="tag">Scapy</span>
+      <span class="tag">Claude AI Triage</span>
       <span class="tag">Flask Dashboard</span>
       <span class="tag">MITRE ATT&amp;CK</span>
       <span class="tag">Live Capture</span>
@@ -335,6 +489,30 @@
   </div>
 </section>
 
+<!-- STATS TICKER -->
+<div class="stats-ticker">
+  <div class="tick-item">
+    <div class="tick-num" data-target="7">0</div>
+    <div class="tick-label">Detection<br>Engines</div>
+  </div>
+  <div class="tick-item">
+    <div class="tick-num" data-target="7">0</div>
+    <div class="tick-label">MITRE<br>Techniques</div>
+  </div>
+  <div class="tick-item">
+    <div class="tick-num" data-target="7">0</div>
+    <div class="tick-label">Attack Chain<br>Patterns</div>
+  </div>
+  <div class="tick-item">
+    <div class="tick-num green" data-target="5">0</div>
+    <div class="tick-label">Countries<br>in Demo</div>
+  </div>
+  <div class="tick-item">
+    <div class="tick-num" data-target="100">0</div>
+    <div class="tick-label">Max Incident<br>Risk Score</div>
+  </div>
+</div>
+
 <!-- ABOUT -->
 <section id="about">
   <div class="section-wrap" style="padding-top:0;padding-bottom:0;">
@@ -343,81 +521,187 @@
         <p class="section-label">// 01 &nbsp; Project Background</p>
         <h2 class="section-title">Detecting threats before they escalate</h2>
         <p>NetIDS was built to address a critical gap in accessible network security tooling. Most IDS solutions are heavyweight, expensive, or require enterprise infrastructure. NetIDS provides serious detection capabilities — in a tool anyone can run from the command line.</p>
-        <p>The system operates in two modes: <strong style="color:#fff;">live packet sniffing</strong> via Scapy for real-time monitoring, and <strong style="color:#fff;">PCAP file analysis</strong> for forensic investigation. Seven independent detection engines run in parallel, each using configurable rolling time-window thresholds with per-source IP tracking.</p>
-        <p>Alerts are automatically enriched with <strong style="color:#fff;">IP geolocation and ASN data</strong>, mapped to <strong style="color:#fff;">MITRE ATT&amp;CK techniques</strong>, and correlated into <strong style="color:#fff;">incidents with 0–100 risk scores</strong>. Output is JSON Lines — structured, machine-readable, and ready for any SIEM or alerting pipeline.</p>
+        <p>The system operates in two modes: <strong style="color:#fff;">live packet sniffing</strong> via Scapy for real-time monitoring, and <strong style="color:#fff;">PCAP file analysis</strong> for forensic investigation. Seven independent detection engines run in parallel, each using configurable rolling time-window thresholds with per-source IP tracking. Alerts <strong style="color:#fff;">escalate automatically</strong> — a source crossing MEDIUM then HIGH thresholds generates distinct escalation alerts.</p>
+        <p>Alerts are enriched with <strong style="color:#fff;">IP geolocation and ASN data</strong>, mapped to <strong style="color:#fff;">MITRE ATT&amp;CK techniques</strong>, and correlated into <strong style="color:#fff;">incidents with 0–100 risk scores</strong> and attack chain detection. Every incident can be triaged instantly by <strong style="color:#fff;">Claude Haiku AI</strong>, which classifies the attack, explains the attacker's likely goal, and recommends SOC response actions.</p>
       </div>
       <ul class="feature-list">
         <li class="feature-item">
           <div class="feat-icon">TCP</div>
           <div class="feat-body">
             <strong>TCP Port Scan Detection</strong>
-            <span>Tracks distinct destination ports per source IP within a 15s window. Fires at 15 / 30 / 60 ports (LOW / MEDIUM / HIGH). MITRE T1046.</span>
-          </div>
-        </li>
-        <li class="feature-item">
-          <div class="feat-icon">SSH</div>
-          <div class="feat-body">
-            <strong>SSH Brute Force Detection</strong>
-            <span>Counts SYN-only packets to port 22 per source within a 30s window. Thresholds: 8 / 20 / 50 attempts. MITRE T1110.</span>
+            <span>Tracks distinct destination ports per source IP within a 15s sliding window. Escalates LOW → MEDIUM → HIGH at 15 / 30 / 60 ports. MITRE T1046.</span>
           </div>
         </li>
         <li class="feature-item">
           <div class="feat-icon">SYN</div>
           <div class="feat-body">
             <strong>SYN Burst / SYN Flood Detection</strong>
-            <span>Detects SYN-only packets (no ACK) per source within an 8s window — a hallmark of DoS attempts. MITRE T1499.</span>
+            <span>Detects SYN-only packets (no ACK) per source in an 8s window — hallmark of DoS and connection exhaustion attacks. Thresholds: 8 / 12 / 50 SYNs. MITRE T1498.</span>
           </div>
         </li>
         <li class="feature-item">
           <div class="feat-icon">ICM</div>
           <div class="feat-body">
-            <strong>ICMP Flood Detection</strong>
-            <span>Monitors ICMP echo requests per source within a 10s window. Catches both flood attacks and reconnaissance ping sweeps. MITRE T1498.</span>
+            <strong>ICMP Sweep Detection</strong>
+            <span>Monitors ICMP echo requests per source in a 30s window to detect host discovery and reconnaissance sweeps. Thresholds: 5 / 10 / 30 packets. MITRE T1018.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">LAT</div>
+          <div class="feat-body">
+            <strong>Lateral Movement Detection</strong>
+            <span>Tracks SSH SYN probes from one source to many unique destination hosts in a 60s window. Flags internal network traversal attempts. Thresholds: 4 / 8 / 20 hosts. MITRE T1021.</span>
           </div>
         </li>
         <li class="feature-item">
           <div class="feat-icon">DNS</div>
           <div class="feat-body">
             <strong>DNS Tunneling Detection</strong>
-            <span>Dual-signal: high query rate (20 / 40 / 80 in 10s) AND long query names (&ge;75 chars). Both signals together escalate severity to HIGH. MITRE T1071.004.</span>
+            <span>Dual-signal: high query rate (20 / 40 / 80 in 10s) and oversized query labels (&ge;75 chars) indicating base64-encoded exfiltration payloads. MITRE T1071.004.</span>
           </div>
         </li>
         <li class="feature-item">
-          <div class="feat-icon">HTT</div>
+          <div class="feat-icon">WEB</div>
           <div class="feat-body">
-            <strong>HTTP Brute Force Detection</strong>
-            <span>Tracks POST requests per (source, destination, port) tuple on ports 80 / 443 / 8080 within a 20s window. MITRE T1110.003.</span>
+            <strong>Web Exploit Detection</strong>
+            <span>Pattern-matches SQL injection, path traversal, and command injection payloads in HTTP traffic. Fires HIGH on SQLi / command injection, MEDIUM on traversal. MITRE T1190.</span>
           </div>
         </li>
         <li class="feature-item">
           <div class="feat-icon">SLW</div>
           <div class="feat-body">
             <strong>Slow Loris Detection</strong>
-            <span>Counts concurrent half-open TCP connections (SYN seen, no FIN/RST). Connections expire after 120s. Thresholds: 10 / 20 / 40. MITRE T1499.</span>
+            <span>Counts concurrent half-open TCP connections (SYN with no FIN/RST) targeting web server ports. Connections expire after 120s. Thresholds: 10 / 20 / 40. MITRE T1499.</span>
           </div>
         </li>
         <li class="feature-item">
           <div class="feat-icon">COR</div>
           <div class="feat-body">
-            <strong>Incident Correlation &amp; Risk Scoring</strong>
-            <span>Groups alerts by source IP within a 120s window into scored incidents (0–100). Detects multi-stage attack chains — Recon → SSH, Recon → Flood, Recon → Web Attack.</span>
+            <strong>Incident Correlation &amp; Attack Chain Detection</strong>
+            <span>Groups alerts by source IP in a 120s window into scored incidents (0–100 risk). Recognizes 7 multi-stage campaigns — Host Discovery → Port Scan, Recon → Lateral Movement, Web Exploit → Data Exfiltration, and more.</span>
+          </div>
+        </li>
+        <li class="feature-item">
+          <div class="feat-icon">AI</div>
+          <div class="feat-body">
+            <strong>Claude Haiku AI Triage</strong>
+            <span>Every incident can be analyzed on demand by Claude Haiku. Returns a structured attack classification, 2–3 sentence analysis of attacker intent, and concrete SOC response steps. Results cached in triage.jsonl.</span>
           </div>
         </li>
         <li class="feature-item">
           <div class="feat-icon">ENR</div>
           <div class="feat-body">
             <strong>IP Enrichment &amp; MITRE Mapping</strong>
-            <span>Every alert enriched with geolocation, ASN, and reverse DNS via ip-api.com. Automatically mapped to the corresponding MITRE ATT&amp;CK technique ID.</span>
+            <span>Every alert enriched with geolocation, ASN, and reverse DNS. Geo coordinates power the live attack map. All 7 alert types mapped to MITRE ATT&amp;CK technique IDs automatically.</span>
           </div>
         </li>
         <li class="feature-item">
           <div class="feat-icon">UI</div>
           <div class="feat-body">
-            <strong>Flask Web Dashboard</strong>
-            <span>Authenticated web UI (PBKDF2-SHA256, session-based, rate-limited). Live alert and incident tables, filter by severity / type / source IP, Plotly charts.</span>
+            <strong>SOC Web Dashboard</strong>
+            <span>Authenticated Flask UI (PBKDF2-SHA256, rate-limited login). Live alert feed, geo attack map, incident cards with inline AI triage, severity charts, alerts-per-minute counter, and one-click demo data loading.</span>
           </div>
         </li>
       </ul>
+    </div>
+  </div>
+</section>
+
+<!-- PIPELINE -->
+<section id="pipeline">
+  <div class="section-wrap">
+    <div class="pipeline-inner">
+      <p class="section-label">// System Architecture</p>
+      <h2 class="section-title">Six-stage pipeline</h2>
+      <p style="color:var(--muted);font-size:0.95rem;line-height:1.7;max-width:580px;margin-bottom:0;">Every packet flows through capture → detection → enrichment → correlation → AI triage → dashboard in under a second.</p>
+      <div class="pipeline-flow">
+
+        <div class="pipe-stage">
+          <div class="pipe-box">
+            <span class="pipe-icon">// input</span>
+            <div class="pipe-title">Capture</div>
+            <ul class="pipe-items">
+              <li>Live NIC sniff</li>
+              <li>PCAP analysis</li>
+              <li>Scapy engine</li>
+            </ul>
+          </div>
+        </div>
+        <div class="pipe-connector"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+
+        <div class="pipe-stage">
+          <div class="pipe-box">
+            <span class="pipe-icon">// detect</span>
+            <div class="pipe-title">7 Detectors</div>
+            <ul class="pipe-items">
+              <li>Port Scan</li>
+              <li>SYN Burst</li>
+              <li>ICMP Sweep</li>
+              <li>Lateral Mvmt</li>
+              <li>DNS Tunnel</li>
+              <li>Web Exploit</li>
+              <li>Slow Loris</li>
+            </ul>
+          </div>
+        </div>
+        <div class="pipe-connector"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+
+        <div class="pipe-stage">
+          <div class="pipe-box">
+            <span class="pipe-icon">// enrich</span>
+            <div class="pipe-title">Enrichment</div>
+            <ul class="pipe-items">
+              <li>GeoIP + ASN</li>
+              <li>Reverse DNS</li>
+              <li>MITRE ID map</li>
+              <li>Geo coordinates</li>
+            </ul>
+          </div>
+        </div>
+        <div class="pipe-connector"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+
+        <div class="pipe-stage">
+          <div class="pipe-box">
+            <span class="pipe-icon">// correlate</span>
+            <div class="pipe-title">Incidents</div>
+            <ul class="pipe-items">
+              <li>120s window</li>
+              <li>Risk score 0–100</li>
+              <li>7 chain patterns</li>
+              <li>Dedup logic</li>
+            </ul>
+          </div>
+        </div>
+        <div class="pipe-connector"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+
+        <div class="pipe-stage">
+          <div class="pipe-box" style="border-color:rgba(168,85,247,0.4);background:rgba(168,85,247,0.04);">
+            <span class="pipe-icon" style="color:#a855f7;">// ai triage</span>
+            <div class="pipe-title">Claude Haiku</div>
+            <ul class="pipe-items">
+              <li>Attack class</li>
+              <li>Intent analysis</li>
+              <li>SOC response</li>
+              <li>Cached result</li>
+            </ul>
+          </div>
+        </div>
+        <div class="pipe-connector"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></div>
+
+        <div class="pipe-stage">
+          <div class="pipe-box" style="border-color:rgba(0,229,255,0.35);background:rgba(0,229,255,0.04);">
+            <span class="pipe-icon">// output</span>
+            <div class="pipe-title">SOC Dashboard</div>
+            <ul class="pipe-items">
+              <li>Live alert feed</li>
+              <li>Geo attack map</li>
+              <li>Incident cards</li>
+              <li>Audio alerts</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
     </div>
   </div>
 </section>
@@ -446,6 +730,144 @@
   </div>
 </section>
 
+<!-- RESULTS -->
+<section id="results">
+  <div class="section-wrap">
+    <div class="results-inner">
+      <p class="section-label">// 03 &nbsp; Results &amp; Outcomes</p>
+      <h2 class="section-title">What NetIDS delivers</h2>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-num">7</div>
+          <div class="stat-label">Detection Engines<br>Running in Parallel</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">3</div>
+          <div class="stat-label">Severity Levels<br>LOW · MEDIUM · HIGH</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num green">7</div>
+          <div class="stat-label">Attack Chains<br>Recognized</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">100</div>
+          <div class="stat-label">Max Risk Score<br>Per Incident</div>
+        </div>
+      </div>
+      <div class="results-cols">
+        <div class="result-block">
+          <h3>What was achieved</h3>
+          <ul class="result-list">
+            <li>Real-time packet inspection via Scapy with dual live/PCAP modes</li>
+            <li>Severity escalation — LOW → MEDIUM → HIGH fires as attack intensity grows, with per-severity independent cooldowns</li>
+            <li>7 multi-stage attack chain patterns recognized from correlated incidents (e.g. Host Discovery → Port Scan → Lateral Movement)</li>
+            <li>Claude Haiku AI triage: on-demand attack classification, analyst explanation, and SOC response steps per incident</li>
+            <li>GeoIP enrichment + Leaflet.js live attack map pinpointing source countries and ASNs</li>
+            <li>PBKDF2-SHA256 authentication with login rate limiting and persistent session keys</li>
+            <li>One-click demo seeding with 23 realistic multi-country alerts covering all 7 attack types and all 3 severity levels</li>
+            <li>Audio alert tones (Web Audio API) on new HIGH/MEDIUM detections — no browser plugins required</li>
+          </ul>
+        </div>
+        <div class="result-block">
+          <h3>Future work</h3>
+          <ul class="result-list future">
+            <li>Integrate the trained Isolation Forest model for ML-based anomaly scoring alongside rule-based detectors</li>
+            <li>HTTPS / TLS termination for the dashboard in production deployments</li>
+            <li>Persistent storage — replace flat JSONL with a database for large-scale deployments</li>
+            <li>Additional detectors: UDP flood, ARP poisoning, credential stuffing</li>
+            <li>Unit test suite covering each detection rule's threshold and escalation behavior</li>
+            <li>SIEM integration — forward alerts to Elasticsearch or Splunk via the existing JSON Lines format</li>
+          </ul>
+        </div>
+      </div>
+      <div class="refs-row">
+        <h3>References &amp; Tools</h3>
+        <ul class="refs-list">
+          <li><a href="https://scapy.net" target="_blank">Scapy — packet capture &amp; crafting</a></li>
+          <li><a href="https://flask.palletsprojects.com" target="_blank">Flask — web framework</a></li>
+          <li><a href="https://www.anthropic.com" target="_blank">Anthropic Claude — AI triage</a></li>
+          <li><a href="https://attack.mitre.org" target="_blank">MITRE ATT&amp;CK Framework</a></li>
+          <li><a href="https://leafletjs.com" target="_blank">Leaflet.js — attack map</a></li>
+          <li><a href="https://ip-api.com" target="_blank">ip-api.com — GeoIP enrichment</a></li>
+          <li><a href="https://scikit-learn.org" target="_blank">scikit-learn — Isolation Forest model</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MITRE COVERAGE -->
+<section id="mitre">
+  <div class="section-wrap">
+    <div class="mitre-inner">
+      <p class="section-label">// MITRE ATT&amp;CK Coverage</p>
+      <h2 class="section-title">Threat coverage</h2>
+      <p style="color:var(--muted);font-size:0.95rem;line-height:1.7;max-width:580px;margin-bottom:0;">Every NetIDS alert maps to the MITRE ATT&amp;CK framework — the industry standard for classifying adversary behavior across 7 covered techniques spanning 5 tactics.</p>
+      <div class="mitre-grid">
+
+        <div class="mitre-col">
+          <div class="mitre-tactic">Reconnaissance</div>
+          <div class="mitre-card covered">
+            <div class="mitre-id">T1046</div>
+            <div class="mitre-name">Network Service Discovery</div>
+            <div class="mitre-detector">↳ Port Scan Detector</div>
+          </div>
+          <div class="mitre-card covered">
+            <div class="mitre-id">T1018</div>
+            <div class="mitre-name">Remote System Discovery</div>
+            <div class="mitre-detector">↳ ICMP Sweep Detector</div>
+          </div>
+        </div>
+
+        <div class="mitre-col">
+          <div class="mitre-tactic">Initial Access</div>
+          <div class="mitre-card covered">
+            <div class="mitre-id">T1190</div>
+            <div class="mitre-name">Exploit Public-Facing Application</div>
+            <div class="mitre-detector">↳ Web Exploit Detector</div>
+          </div>
+        </div>
+
+        <div class="mitre-col">
+          <div class="mitre-tactic">Lateral Movement</div>
+          <div class="mitre-card covered">
+            <div class="mitre-id">T1021</div>
+            <div class="mitre-name">Remote Services (SSH)</div>
+            <div class="mitre-detector">↳ Lateral Movement Detector</div>
+          </div>
+        </div>
+
+        <div class="mitre-col">
+          <div class="mitre-tactic">Command &amp; Control</div>
+          <div class="mitre-card covered">
+            <div class="mitre-id">T1071.004</div>
+            <div class="mitre-name">Application Layer Protocol: DNS</div>
+            <div class="mitre-detector">↳ DNS Tunnel Detector</div>
+          </div>
+        </div>
+
+        <div class="mitre-col">
+          <div class="mitre-tactic">Impact</div>
+          <div class="mitre-card covered">
+            <div class="mitre-id">T1498</div>
+            <div class="mitre-name">Network Denial of Service</div>
+            <div class="mitre-detector">↳ SYN Burst Detector</div>
+          </div>
+          <div class="mitre-card covered">
+            <div class="mitre-id">T1499</div>
+            <div class="mitre-name">Endpoint Denial of Service</div>
+            <div class="mitre-detector">↳ Slow Loris Detector</div>
+          </div>
+        </div>
+
+      </div>
+      <div class="mitre-legend">
+        <div><span class="legend-dot" style="background:rgba(0,229,255,0.25);border:1px solid rgba(0,229,255,0.5);"></span>Covered by NetIDS (7 techniques)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- POSTER -->
 <section id="poster">
   <div class="section-wrap">
@@ -454,7 +876,7 @@
         <iframe src="Poster_LUISVAZQUEZ.pdf" style="position:absolute;inset:0;width:100%;height:100%;border:none;border-radius:4px;" title="NetIDS Capstone Poster"></iframe>
       </div>
       <div class="poster-info">
-        <p class="section-label">// 03 &nbsp; Project Poster</p>
+        <p class="section-label">// 04 &nbsp; Project Poster</p>
         <h2 class="section-title">Download the capstone poster</h2>
         <p>The poster provides a visual overview of NetIDS — covering system architecture, all 7 detection engines, the incident correlation pipeline, MITRE ATT&amp;CK mappings, the implementation stack, and evaluation results. Designed for the Capstone Expo audience.</p>
         <a href="Poster_LUISVAZQUEZ.pdf" class="btn" download>
@@ -472,11 +894,11 @@
     <div class="bio-inner">
       <div class="bio-avatar">LV</div>
       <div class="bio-details">
-        <p class="section-label">// 04 &nbsp; Project Creator</p>
+        <p class="section-label">// 05 &nbsp; Project Creator</p>
         <h2 class="bio-name">Luis Vazquez</h2>
         <p class="bio-role">Computer Science Student &nbsp;·&nbsp; Security &amp; Systems</p>
         <p class="bio-text">
-          Luis is a Computer Science student with a focus on network security and systems programming. NetIDS represents his capstone work — a full-stack IDS built from scratch: seven modular detection engines, an incident correlation layer with risk scoring, MITRE ATT&amp;CK integration, IP geolocation enrichment, and an authenticated Flask web dashboard with live Plotly charts.
+          Luis is a Computer Science student with a focus on network security and systems programming. NetIDS is his capstone project — a full-stack IDS built from scratch: seven detection engines with severity escalation, incident correlation with attack chain recognition, MITRE ATT&amp;CK integration, GeoIP enrichment, Claude Haiku AI triage, and a live SOC-style web dashboard.
           <br><br>
           His interests span offensive and defensive security, Python tooling, and building software that solves real infrastructure challenges. After graduation, he aims to pursue a career in cybersecurity engineering or network defense.
         </p>
@@ -493,7 +915,7 @@
 <section id="comments">
   <div class="section-wrap">
     <div class="comments-inner">
-      <p class="section-label">// 05 &nbsp; Feedback</p>
+      <p class="section-label">// 06 &nbsp; Feedback</p>
       <h2 class="section-title">Leave a comment</h2>
       <p>Questions, feedback, or ideas about NetIDS? Comments are open — your input is welcome.</p>
       <div class="comment-form">
@@ -523,7 +945,7 @@
 
 <footer>
   <div class="footer-logo">NET<span>/</span>IDS &nbsp;·&nbsp; Capstone Expo 2026</div>
-  <div class="footer-right">Python · Scapy · Flask · Plotly · MITRE ATT&amp;CK</div>
+  <div class="footer-right">Python · Scapy · Flask · Claude AI · MITRE ATT&amp;CK</div>
 </footer>
 
 <script>
@@ -559,6 +981,31 @@
   function esc(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // Count-up animation for stats ticker
+  function animateCountUp(el) {
+    const target = parseInt(el.dataset.target);
+    const duration = 1400;
+    const start = performance.now();
+    function update(now) {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.round(eased * target);
+      if (progress < 1) requestAnimationFrame(update);
+    }
+    requestAnimationFrame(update);
+  }
+
+  const tickerObs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.querySelectorAll('.tick-num[data-target]').forEach(animateCountUp);
+        tickerObs.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.3 });
+  const ticker = document.querySelector('.stats-ticker');
+  if (ticker) tickerObs.observe(ticker);
 
   // Scroll reveal
   const obs = new IntersectionObserver(entries => {
