@@ -7,6 +7,8 @@ import subprocess
 from collections import defaultdict
 import urllib.request
 
+from response.ai_triage import analyze_async
+
 _SEV_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
 class Notifier:
@@ -74,6 +76,8 @@ class Notifier:
             f" src={bold}{incident.get('primary_src_ip')}{reset}"
             f" :: {incident.get('summary')}"
         )
+        if sev in ("MEDIUM", "HIGH"):
+            analyze_async(incident)
         if sev == "HIGH":
             src = incident.get("primary_src_ip") or incident.get("src_ip", "")
             self.auto_block(src)

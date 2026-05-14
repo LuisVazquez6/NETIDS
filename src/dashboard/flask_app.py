@@ -6,6 +6,8 @@ import json
 import sys
 import time
 import os
+import signal
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
@@ -16,6 +18,7 @@ from flask import Flask, render_template, jsonify, request, session, redirect, u
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from correlation.incident_manager import ALERT_WEIGHTS, SEVERITY_WEIGHT, detect_chain  # noqa: E402
 from models.incidents import SEVERITY_ORDER  # noqa: E402
+from response.ai_triage import analyze_async  # noqa: E402
 
 app = Flask(__name__)
 
@@ -48,8 +51,12 @@ _LOGIN_MAX = 5
 _LOGIN_WINDOW = 60
 
 ROOT = Path(__file__).resolve().parents[2]
-ALERTS_PATH = ROOT / "logs" / "alerts.jsonl"
-CONFIG_PATH = ROOT / "config.json"
+ALERTS_PATH  = ROOT / "logs" / "alerts.jsonl"
+TRIAGE_PATH  = ROOT / "logs" / "triage.jsonl"
+CLEARED_PATH = ROOT / "logs" / "cleared_incidents.json"
+CONFIG_PATH  = ROOT / "config.json"
+IDS_PID_PATH = ROOT / "logs" / "ids.pid"
+IDS_START_TS = {}   # {"ts": float}
 
 
 def load_dashboard_config():
@@ -294,35 +301,46 @@ def api_incidents():
     if not alerts:
         return jsonify([])
 
-    # Group alerts by src_ip. Within each group, split into incidents whenever
-    # there is a gap of more than 5 minutes between consecutive alerts.
-    INCIDENT_GAP_S = 300
+    cleared_at = 0.0
+    if CLEARED_PATH.exists():
+        try:
+            cleared_at = float(json.loads(CLEARED_PATH.read_text()).get("cleared_at", 0))
+        except Exception:
+            pass
 
-    by_src = defaultdict(list)
+    # Group by (src_ip, alert_type) — one incident card per attack type per source
+    by_src_type = defaultdict(list)
     for a in alerts:
-        src = a.get("src_ip", "unknown")
-        by_src[src].append(a)
+        src   = a.get("src_ip", "unknown")
+        atype = a.get("alert_type", "UNKNOWN")
+        by_src_type[(src, atype)].append(a)
 
     incidents = []
-    for src, src_alerts in by_src.items():
-        src_alerts.sort(key=lambda a: a.get("ts", 0))
-        group = []
-        for a in src_alerts:
-            if group and float(a.get("ts", 0)) - float(group[-1].get("ts", 0)) > INCIDENT_GAP_S:
-                incidents.append(_build_incident(src, group, ALERT_WEIGHTS, SEVERITY_WEIGHT, SEVERITY_ORDER))
-                group = []
-            group.append(a)
-        if group:
-            incidents.append(_build_incident(src, group, ALERT_WEIGHTS, SEVERITY_WEIGHT, SEVERITY_ORDER))
+    for (src, atype), group in by_src_type.items():
+        group.sort(key=lambda a: a.get("ts", 0))
+        inc = _build_incident(src, group, ALERT_WEIGHTS, SEVERITY_WEIGHT, SEVERITY_ORDER)
+        inc["alert_type_key"] = atype
+        if inc["last_seen"] > cleared_at:
+            incidents.append(inc)
 
     incidents.sort(key=lambda i: i["last_seen"], reverse=True)
-    return jsonify(incidents[:20])
+    return jsonify(incidents)
+
+
+@app.route("/api/incidents/clear", methods=["POST"])
+@login_required
+def clear_incidents():
+    CLEARED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CLEARED_PATH.write_text(json.dumps({"cleared_at": time.time()}))
+    return jsonify({"ok": True})
 
 
 def _build_incident(src, group, weights, sev_weights, sev_order):
     type_count = defaultdict(int)
+    mitre = set()
     max_sev = "LOW"
     risk = 0
+    enrichment = {}
     for a in group:
         atype = a.get("alert_type", "UNKNOWN")
         type_count[atype] += 1
@@ -331,6 +349,11 @@ def _build_incident(src, group, weights, sev_weights, sev_order):
             max_sev = sev
         score = weights.get(atype, 15) + sev_weights.get(sev, 10)
         risk = min(100, max(risk, score))
+        mt = a.get("mitre_technique", "")
+        if mt and mt != "UNKNOWN":
+            mitre.add(mt)
+        if not enrichment:
+            enrichment = a.get("enrichment") or {}
 
     top_types = sorted(type_count.items(), key=lambda x: x[1], reverse=True)
     chain = detect_chain(set(type_count.keys()))
@@ -341,11 +364,149 @@ def _build_incident(src, group, weights, sev_weights, sev_order):
         "alert_count": len(group),
         "alert_types": [{"type": t, "count": c} for t, c in top_types],
         "attack_chain": chain,
+        "mitre_techniques": sorted(mitre),
+        "country":      enrichment.get("src_country", ""),
+        "country_code": enrichment.get("src_country_code", ""),
+        "org":          enrichment.get("src_org", ""),
         "first_seen": group[0].get("ts", 0),
         "last_seen": group[-1].get("ts", 0),
         "first_seen_fmt": datetime.fromtimestamp(float(group[0].get("ts", 0))).strftime("%H:%M:%S"),
         "last_seen_fmt": datetime.fromtimestamp(float(group[-1].get("ts", 0))).strftime("%H:%M:%S"),
     }
+
+
+@app.route("/api/triage")
+@login_required
+def api_triage():
+    if not TRIAGE_PATH.exists():
+        return jsonify([])
+    results = []
+    for line in TRIAGE_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            results.append(json.loads(line))
+        except Exception:
+            continue
+    results.sort(key=lambda x: x.get("triage_ts", 0), reverse=True)
+    return jsonify(results[:20])
+
+
+@app.route("/api/triage", methods=["DELETE"])
+@login_required
+def clear_triage():
+    if TRIAGE_PATH.exists():
+        TRIAGE_PATH.write_text("", encoding="utf-8")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/ids/status")
+@login_required
+def ids_status():
+    pid = _ids_pid()
+    running = pid is not None
+    uptime = 0
+    if running and IDS_START_TS.get("ts"):
+        uptime = int(time.time() - IDS_START_TS["ts"])
+
+    alerts = read_alerts()
+    by_type = defaultdict(lambda: {"count": 0, "severity": "", "last_ts": ""})
+    for a in alerts:
+        atype = a.get("alert_type", "")
+        if not atype:
+            continue
+        by_type[atype]["count"] += 1
+        sev = a.get("severity", "LOW")
+        if not by_type[atype]["severity"] or \
+           {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(sev, 0) > \
+           {"HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(by_type[atype]["severity"], 0):
+            by_type[atype]["severity"] = sev
+        try:
+            t = datetime.fromtimestamp(float(a.get("ts", 0))).strftime("%H:%M:%S")
+            by_type[atype]["last_ts"] = t
+        except Exception:
+            pass
+
+    return jsonify({
+        "running": running,
+        "pid": pid,
+        "uptime_s": uptime,
+        "detectors": dict(by_type),
+    })
+
+
+@app.route("/api/ids/start", methods=["POST"])
+@login_required
+def ids_start():
+    if _ids_pid() is not None:
+        return jsonify({"ok": False, "error": "already running"})
+    data  = request.get_json(silent=True) or {}
+    iface = data.get("iface", "enp0s3")
+    ids_py = ROOT / "src" / "ids.py"
+    env = os.environ.copy()
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(ids_py), "--live", "--iface", iface],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env=env, cwd=str(ROOT),
+        )
+        IDS_PID_PATH.parent.mkdir(parents=True, exist_ok=True)
+        IDS_PID_PATH.write_text(str(proc.pid))
+        IDS_START_TS["ts"] = time.time()
+        return jsonify({"ok": True, "pid": proc.pid})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/ids/stop", methods=["POST"])
+@login_required
+def ids_stop():
+    pid = _ids_pid()
+    if pid is None:
+        return jsonify({"ok": False, "error": "not running"})
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+    IDS_PID_PATH.unlink(missing_ok=True)
+    IDS_START_TS.clear()
+    return jsonify({"ok": True})
+
+
+def _ids_pid():
+    if not IDS_PID_PATH.exists():
+        return None
+    try:
+        pid = int(IDS_PID_PATH.read_text().strip())
+        os.kill(pid, 0)   # 0 = just check existence
+        return pid
+    except (ValueError, ProcessLookupError, OSError):
+        IDS_PID_PATH.unlink(missing_ok=True)
+        return None
+
+
+@app.route("/api/triage/trigger", methods=["POST"])
+@login_required
+def trigger_triage():
+    data = request.get_json(silent=True) or {}
+    src_ip     = data.get("src_ip", "")
+    alert_type = data.get("alert_type", "")
+    if not src_ip:
+        return jsonify({"error": "src_ip required"}), 400
+    alerts = [
+        a for a in read_alerts()
+        if a.get("src_ip") == src_ip
+        and (not alert_type or a.get("alert_type") == alert_type)
+    ]
+    if not alerts:
+        return jsonify({"error": "no alerts"}), 404
+    inc = _build_incident(src_ip, alerts, ALERT_WEIGHTS, SEVERITY_WEIGHT, SEVERITY_ORDER)
+    inc["alert_type_key"] = alert_type
+    analyze_async(inc)
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":

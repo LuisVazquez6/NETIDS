@@ -8,11 +8,13 @@ from models.incidents import Incident, new_incident_id, severity_max, SEVERITY_O
 
 # Basic SOC-style weights (tune anytime)
 ALERT_WEIGHTS = {
-    "PORT_SCAN_SUSPECTED": 30,
-    "SYN_BURST_SUSPECTED": 35,
-    "ICMP_FLOOD_SUSPECTED": 25,
-    "ICMP_SWEEP_SUSPECTED": 20,
-    "SSH_BRUTEFORCE_SUSPECTED": 40,
+    "PORT_SCAN_SUSPECTED":       30,
+    "SYN_BURST_SUSPECTED":       35,
+    "ICMP_SWEEP_SUSPECTED":      25,
+    "LATERAL_MOVEMENT_SUSPECTED": 45,
+    "WEB_EXPLOIT_SUSPECTED":     50,
+    "DNS_TUNNEL_SUSPECTED":      30,
+    "SLOW_LORIS_SUSPECTED":      30,
 }
 
 
@@ -45,11 +47,13 @@ DEFAULT_RECS = {
 }
 
 ATTACK_CHAINS = {
-    frozenset({"PORT_SCAN_SUSPECTED", "SSH_BRUTEFORCE_SUSPECTED"}): "Recon → SSH Exploitation",
-    frozenset({"PORT_SCAN_SUSPECTED", "SYN_BURST_SUSPECTED"}): "Recon → SYN Flood",
-    frozenset({"PORT_SCAN_SUSPECTED", "HTTP_BRUTEFORCE_SUSPECTED"}): "Recon → Web Attack",
-    frozenset({"PORT_SCAN_SUSPECTED", "SLOW_LORIS_SUSPECTED"}): "Recon → Slow Loris",
-    frozenset({"SSH_BRUTEFORCE_SUSPECTED", "ARP_SPOOF_SUSPECTED"}): "ARP Poisoning + SSH Attack",
+    frozenset({"PORT_SCAN_SUSPECTED", "LATERAL_MOVEMENT_SUSPECTED"}):  "Recon → Lateral Movement",
+    frozenset({"PORT_SCAN_SUSPECTED", "SYN_BURST_SUSPECTED"}):          "Recon → SYN Flood",
+    frozenset({"PORT_SCAN_SUSPECTED", "WEB_EXPLOIT_SUSPECTED"}):        "Recon → Web Exploitation",
+    frozenset({"PORT_SCAN_SUSPECTED", "SLOW_LORIS_SUSPECTED"}):         "Recon → Slow Loris",
+    frozenset({"ICMP_SWEEP_SUSPECTED", "LATERAL_MOVEMENT_SUSPECTED"}):  "Network Sweep → Lateral Movement",
+    frozenset({"ICMP_SWEEP_SUSPECTED", "PORT_SCAN_SUSPECTED"}):         "Host Discovery → Port Scan",
+    frozenset({"WEB_EXPLOIT_SUSPECTED", "DNS_TUNNEL_SUSPECTED"}):       "Web Exploit → Data Exfiltration",
 }
 
 

@@ -33,11 +33,11 @@ from scapy.all import PcapReader, IP, TCP, UDP, ICMP, ARP, DNS, Raw, sniff, conf
 # all the modules we built, detectors, enrichment, correlation, AI, output
 # keeping each one separate makes it easier to add new detectors later
 from rules.port_scan import PortScanDetector
-from rules.icmp_flood import ICMPFloodDetector
+from rules.icmp_sweep import ICMPSweepDetector
 from rules.syn_burst import SYNBurstDetector
-from rules.ssh_bruteforce import SSHBruteForceDetector
+from rules.lateral_movement import LateralMovementDetector
 from rules.dns_tunnel import DNSTunnelDetector
-from rules.http_bruteforce import HTTPBruteForceDetector
+from rules.web_exploit import WebExploitDetector
 from rules.slow_loris import SlowLorisDetector
 from enrichment.enrich_ip import enrich_alert_dict
 from enrichment.mitre_mapper import map_mitre
@@ -247,7 +247,7 @@ def iter_packets(pcap_path: Path):
             yield pkt
 
 
-def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, dns_tunnel=None, http_bf=None, slow_loris=None, whitelist=None) -> None:
+def handle_packet(pkt, stats, portscan, icmp_sweep, syn_burst, lateral, logger, incident_mgr, notifier, dns_tunnel=None, web_exploit=None, slow_loris=None, whitelist=None) -> None:
     stats["total_packets"] += 1
 
     ts = float(getattr(pkt, "time", time.time()))
@@ -272,21 +272,19 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
         is_syn = (flags & 0x02) != 0
         is_ack = (flags & 0x10) != 0
 
-        # only pure SYN packets go to port scan and ssh detectors
         if is_syn and not is_ack:
             tcp_alerts += portscan.process(ts, src, dst, dport)
-            tcp_alerts += ssh_bf.process(ts, src, dst, dport, flags)
+            tcp_alerts += lateral.process(ts, src, dst, dport, flags)
 
         tcp_alerts += syn_burst.process(ts, src, dst, flags)
 
-        # slow loris tracks all TCP packets to follow connection lifecycle
         if slow_loris is not None:
             tcp_alerts += slow_loris.process(ts, src, dst, sport, dport, flags)
 
-        # HTTP brute force — inspect payload of established connections
-        if http_bf is not None and Raw in pkt:
+        # Web exploit — inspect payload of any HTTP connection
+        if web_exploit is not None and Raw in pkt:
             payload = bytes(pkt[Raw].load)
-            tcp_alerts += http_bf.process(ts, src, dst, dport, payload)
+            tcp_alerts += web_exploit.process(ts, src, dst, dport, payload)
 
         for a in tcp_alerts:
             setattr(a, "dst_ip", dst)
@@ -299,7 +297,6 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
     elif UDP in pkt:
         stats["udp_packets"] += 1
 
-        # DNS tunneling detection — port 53 UDP with a DNS query layer
         if dns_tunnel is not None and int(pkt[UDP].dport) == 53 and DNS in pkt:
             dns_layer = pkt[DNS]
             if dns_layer.qd is not None:
@@ -319,9 +316,9 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
     elif ICMP in pkt:
         stats["icmp_packets"] += 1
 
-        # type 8 is echo request, thats what a flood looks like
+        # type 8 = echo request — feed to sweep detector (counts unique dst IPs)
         if int(pkt[ICMP].type) == 8:
-            icmp_alerts = icmp_flood.process(ts, src, dst)
+            icmp_alerts = icmp_sweep.process(ts, src, dst)
 
             for a in icmp_alerts:
                 setattr(a, "dst_ip", dst)
@@ -338,7 +335,7 @@ def handle_packet(pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, i
 # -----------------------
 # two ways to run: live capture on an interface or replay a pcap file
 # live mode just runs until you hit ctrl+c
-def run_live(interface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, incident_mgr, notifier, dns_tunnel=None, http_bf=None, slow_loris=None, whitelist=None) -> None:
+def run_live(interface, stats, portscan, icmp_sweep, syn_burst, lateral, logger, incident_mgr, notifier, dns_tunnel=None, web_exploit=None, slow_loris=None, whitelist=None) -> None:
     if interface:
         print(f"[*] Live capture on interface: {interface}")
     else:
@@ -347,15 +344,14 @@ def run_live(interface, stats, portscan, icmp_flood, syn_burst, ssh_bf, logger, 
     def on_packet(pkt):
         try:
             handle_packet(
-                pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf,
+                pkt, stats, portscan, icmp_sweep, syn_burst, lateral,
                 logger, incident_mgr, notifier,
-                dns_tunnel, http_bf, slow_loris, whitelist,
+                dns_tunnel, web_exploit, slow_loris, whitelist,
             )
         except Exception as e:
             print(f"[!] Packet handler error: {e}", file=sys.stderr)
             traceback.print_exc()
 
-    # "ip or arp" captures ARP frames as well as all IP traffic
     sniff(iface=interface, prn=on_packet, store=False, filter="ip or arp")
 
 
@@ -393,12 +389,12 @@ def main() -> int:
     ap.add_argument("--config", default="config.json", help="Config file path")
     ap.add_argument("--window", type=int, default=15, help="Port-scan window (seconds)")
     ap.add_argument("--threshold", type=int, default=20, help="Port-scan distinct port threshold")
-    ap.add_argument("--icmp-window", type=int, default=10, help="ICMP flood window (seconds)")
-    ap.add_argument("--icmp-threshold", type=int, default=5, help="ICMP flood packet threshold")
+    ap.add_argument("--icmp-window", type=int, default=30, help="ICMP sweep window (seconds)")
+    ap.add_argument("--icmp-threshold", type=int, default=10, help="ICMP sweep unique-host threshold")
     ap.add_argument("--syn-window", type=int, default=5, help="SYN burst window (seconds)")
     ap.add_argument("--syn-threshold", type=int, default=20, help="SYN burst packet threshold")
-    ap.add_argument("--ssh-window", type=int, default=30, help="SSH brute-force window (seconds)")
-    ap.add_argument("--ssh-threshold", type=int, default=12, help="SSH brute-force attempt threshold")
+    ap.add_argument("--lateral-window", type=int, default=60, help="Lateral movement window (seconds)")
+    ap.add_argument("--lateral-threshold", type=int, default=8, help="Lateral movement unique-host threshold")
     ap.add_argument("--auto-block", action="store_true", help="Auto-block HIGH severity sources via iptables (requires root)")
 
     args = ap.parse_args()
@@ -428,21 +424,20 @@ def main() -> int:
     # pull thresholds from config for each detector
     # we pass the medium threshold to the constructor since thats the main trigger point
     # low and high are stored on the detector and checked inside process()
-    ps_cfg = cfg.get("port_scan", {})
-    icmp_cfg = cfg.get("icmp_flood", {})
-    syn_cfg = cfg.get("syn_burst", {})
-    ssh_cfg = cfg.get("ssh_bruteforce", {})
-    dns_cfg = cfg.get("dns_tunnel", {})
-    http_cfg = cfg.get("http_bruteforce", {})
-    loris_cfg = cfg.get("slow_loris", {})
+    ps_cfg      = cfg.get("port_scan", {})
+    icmp_cfg    = cfg.get("icmp_sweep", {})
+    syn_cfg     = cfg.get("syn_burst", {})
+    lateral_cfg = cfg.get("lateral_movement", {})
+    dns_cfg     = cfg.get("dns_tunnel", {})
+    web_cfg     = cfg.get("web_exploit", {})
+    loris_cfg   = cfg.get("slow_loris", {})
 
-    ps_thresholds = pick_thresholds(ps_cfg.get("thresholds", {}), args.threshold)
-    icmp_thresholds = pick_thresholds(icmp_cfg.get("thresholds", {}), args.icmp_threshold)
-    syn_thresholds = pick_thresholds(syn_cfg.get("thresholds", {}), args.syn_threshold)
-    ssh_thresholds = pick_thresholds(ssh_cfg.get("thresholds", {}), args.ssh_threshold)
-    dns_thresholds = pick_thresholds(dns_cfg.get("thresholds", {}), 30)
-    http_thresholds = pick_thresholds(http_cfg.get("thresholds", {}), 20)
-    loris_thresholds = pick_thresholds(loris_cfg.get("thresholds", {}), 20)
+    ps_thresholds      = pick_thresholds(ps_cfg.get("thresholds", {}), args.threshold)
+    icmp_thresholds    = pick_thresholds(icmp_cfg.get("thresholds", {}), args.icmp_threshold)
+    syn_thresholds     = pick_thresholds(syn_cfg.get("thresholds", {}), args.syn_threshold)
+    lateral_thresholds = pick_thresholds(lateral_cfg.get("thresholds", {}), args.lateral_threshold)
+    dns_thresholds     = pick_thresholds(dns_cfg.get("thresholds", {}), 30)
+    loris_thresholds   = pick_thresholds(loris_cfg.get("thresholds", {}), 20)
 
     portscan = PortScanDetector(
         window_s=_int(ps_cfg.get("window_s"), args.window),
@@ -450,11 +445,11 @@ def main() -> int:
     )
     portscan.thresholds = ps_thresholds
 
-    icmp_flood = ICMPFloodDetector(
+    icmp_sweep = ICMPSweepDetector(
         window_s=_int(icmp_cfg.get("window_s"), args.icmp_window),
-        threshold_pkts=icmp_thresholds["medium"],
+        threshold_hosts=icmp_thresholds["medium"],
     )
-    icmp_flood.thresholds = icmp_thresholds
+    icmp_sweep.thresholds = icmp_thresholds
 
     syn_burst = SYNBurstDetector(
         window_s=_int(syn_cfg.get("window_s"), args.syn_window),
@@ -462,11 +457,11 @@ def main() -> int:
     )
     syn_burst.thresholds = syn_thresholds
 
-    ssh_bf = SSHBruteForceDetector(
-        window_s=_int(ssh_cfg.get("window_s"), args.ssh_window),
-        threshold_hits=ssh_thresholds["medium"],
+    lateral = LateralMovementDetector(
+        window_s=_int(lateral_cfg.get("window_s"), args.lateral_window),
+        threshold_hosts=lateral_thresholds["medium"],
     )
-    ssh_bf.thresholds = ssh_thresholds
+    lateral.thresholds = lateral_thresholds
 
     dns_tunnel = DNSTunnelDetector(
         window_s=_int(dns_cfg.get("window_s"), 10),
@@ -474,11 +469,9 @@ def main() -> int:
     )
     dns_tunnel.thresholds = dns_thresholds
 
-    http_bf = HTTPBruteForceDetector(
-        window_s=_int(http_cfg.get("window_s"), 20),
-        threshold_requests=http_thresholds["medium"],
+    web_exploit = WebExploitDetector(
+        cooldown_s=_int(web_cfg.get("cooldown_s"), 30),
     )
-    http_bf.thresholds = http_thresholds
 
     slow_loris = SlowLorisDetector(
         threshold_connections=loris_thresholds["medium"],
@@ -487,11 +480,11 @@ def main() -> int:
 
     print(f"[CFG] log_path={Path(log_path).resolve()}")
     print(f"[CFG] port_scan window_s={portscan.window_s} thresholds={portscan.thresholds}")
-    print(f"[CFG] icmp_flood window_s={icmp_flood.window_s} thresholds={icmp_flood.thresholds}")
+    print(f"[CFG] icmp_sweep window_s={icmp_sweep.window_s} thresholds={icmp_sweep.thresholds}")
     print(f"[CFG] syn_burst window_s={syn_burst.window_s} thresholds={syn_burst.thresholds}")
-    print(f"[CFG] ssh_bruteforce window_s={ssh_bf.window_s} thresholds={ssh_bf.thresholds}")
+    print(f"[CFG] lateral_movement window_s={lateral.window_s} thresholds={lateral.thresholds}")
     print(f"[CFG] dns_tunnel window_s={dns_tunnel.window_s} thresholds={dns_tunnel.thresholds}")
-    print(f"[CFG] http_bruteforce window_s={http_bf.window_s} thresholds={http_bf.thresholds}")
+    print(f"[CFG] web_exploit cooldown_s={web_exploit.cooldown_s}")
     print(f"[CFG] slow_loris thresholds={slow_loris.thresholds}")
 
     # -----------------------
@@ -515,9 +508,9 @@ def main() -> int:
     try:
         if args.live:
             run_live(
-                args.iface, stats, portscan, icmp_flood, syn_burst, ssh_bf,
+                args.iface, stats, portscan, icmp_sweep, syn_burst, lateral,
                 logger, incident_mgr, notifier,
-                dns_tunnel, http_bf, slow_loris, whitelist,
+                dns_tunnel, web_exploit, slow_loris, whitelist,
             )
         else:
             if not args.pcap:
@@ -530,9 +523,9 @@ def main() -> int:
             print(f"[*] Reading PCAP: {pcap_path}")
             for pkt in iter_packets(pcap_path):
                 handle_packet(
-                    pkt, stats, portscan, icmp_flood, syn_burst, ssh_bf,
+                    pkt, stats, portscan, icmp_sweep, syn_burst, lateral,
                     logger, incident_mgr, notifier,
-                    dns_tunnel, http_bf, slow_loris, whitelist,
+                    dns_tunnel, web_exploit, slow_loris, whitelist,
                 )
 
     except KeyboardInterrupt:

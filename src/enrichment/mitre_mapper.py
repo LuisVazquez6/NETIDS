@@ -22,8 +22,14 @@ MITRE_MAP = {
     # DNS tunneling — Application Layer Protocol: DNS
     "DNS_TUNNEL_SUSPECTED": "T1071.004",
 
-    # HTTP brute force — Brute Force
-    "HTTP_BRUTEFORCE_SUSPECTED": "T1110",
+    # Lateral movement — Remote Services
+    "LATERAL_MOVEMENT_SUSPECTED": "T1021",
+
+    # ICMP sweep — Remote System Discovery
+    "ICMP_SWEEP_SUSPECTED": "T1018",
+
+    # Web exploit — Exploit Public-Facing Application
+    "WEB_EXPLOIT_SUSPECTED": "T1190",
 
     # Slow Loris / slow HTTP — Network Denial of Service
     "SLOW_LORIS_SUSPECTED": "T1499",

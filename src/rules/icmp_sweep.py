@@ -1,4 +1,4 @@
-# src/rules/icmp_flood.py
+# src/rules/icmp_sweep.py
 from __future__ import annotations
 
 from collections import defaultdict, deque
@@ -8,25 +8,24 @@ from models.alerts import Alert
 from utils.severity import classify, normalize_thresholds
 
 
-class ICMPFloodDetector:
+class ICMPSweepDetector:
     """
-    Detects ICMP echo-request floods by counting events from src_ip in a time window.
-    ids.py already filters ICMP type 8 (echo request) before calling this.
+    Detects ICMP reconnaissance by counting ICMP echo requests received from a
+    single source within a time window (host-based perspective: T1018).
+
+    A burst of pings from one external host = active host discovery / probe.
     """
 
-    INTERNAL_COOLDOWN_S = 10
+    INTERNAL_COOLDOWN_S = 15
     MAX_TRACKED_IPS = 5000
     IDLE_EXPIRY_S = 300
 
-    def __init__(self, window_s: int = 10, threshold_pkts: int = 50, thresholds: Optional[dict] = None):
+    def __init__(self, window_s: int = 30, threshold_hosts: int = 10, thresholds: Optional[dict] = None):
         self.window_s = window_s
-        # kept for compatibility / debugging
-        self.threshold_pkts = threshold_pkts
         self.thresholds = thresholds or {}
 
-        # src_ip -> deque[timestamps]
+        # src_ip -> deque[ts]
         self.events: Dict[str, Deque[float]] = defaultdict(deque)
-        # src_ip -> {severity -> last_fire_ts}
         self._last_fire: Dict[str, Dict[str, float]] = defaultdict(dict)
         self._last_seen: Dict[str, float] = {}
 
@@ -54,16 +53,14 @@ class ICMPFloodDetector:
 
             count = len(dq)
 
-            low_th = int(self.thresholds.get("low", max(1, self.threshold_pkts // 2)))
+            low_th = int(self.thresholds.get("low", 5))
             if count < low_th:
                 return []
 
-            default_low = low_th
-            default_medium = int(self.thresholds.get("medium", self.threshold_pkts))
-            default_high = int(self.thresholds.get("high", default_medium * 3))
-
-            thresholds = normalize_thresholds(self.thresholds, default_low, default_medium, default_high)
-            severity = classify(count, thresholds)
+            default_medium = int(self.thresholds.get("medium", 10))
+            default_high   = int(self.thresholds.get("high", 30))
+            thresholds = normalize_thresholds(self.thresholds, low_th, default_medium, default_high)
+            severity   = classify(count, thresholds)
 
             if severity == "LOW":
                 return []
@@ -74,17 +71,13 @@ class ICMPFloodDetector:
 
             return [Alert(
                 ts=ts,
-                alert_type="ICMP_FLOOD_SUSPECTED",
+                alert_type="ICMP_SWEEP_SUSPECTED",
                 severity=severity,
                 src_ip=src_ip,
                 details={
-                    "window_s": self.window_s,
-                    "pkt_count": count,
-                    "thresholds": {
-                        "low": int(thresholds.get("low", low_th)),
-                        "medium": int(thresholds.get("medium", self.threshold_pkts)),
-                        "high": int(thresholds.get("high", int(thresholds.get("medium", self.threshold_pkts)) * 3)),
-                    },
+                    "window_s":    self.window_s,
+                    "icmp_count":  count,
+                    "thresholds":  thresholds,
                 },
             )]
         except Exception:

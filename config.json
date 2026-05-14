@@ -12,12 +12,12 @@
         }
     },
 
-    "icmp_flood": {
-        "window_s": 10,
+    "icmp_sweep": {
+        "window_s": 30,
         "thresholds": {
-            "low": 10,
-            "medium": 15,
-            "high": 50
+            "low": 5,
+            "medium": 10,
+            "high": 30
         }
     },
 
@@ -30,12 +30,12 @@
         }
     },
 
-    "ssh_bruteforce": {
-        "window_s": 30,
+    "lateral_movement": {
+        "window_s": 60,
         "thresholds": {
-            "low": 8,
-            "medium": 20,
-            "high": 50
+            "low": 4,
+            "medium": 8,
+            "high": 20
         }
     },
 
@@ -48,13 +48,8 @@
         }
     },
 
-    "http_bruteforce": {
-        "window_s": 20,
-        "thresholds": {
-            "low": 10,
-            "medium": 25,
-            "high": 60
-        }
+    "web_exploit": {
+        "cooldown_s": 30
     },
 
     "slow_loris": {
