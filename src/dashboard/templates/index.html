@@ -196,7 +196,7 @@
 
   .alert-row {
     display: grid;
-    grid-template-columns: 70px 80px 160px 1fr 80px;
+    grid-template-columns: 70px 80px 160px 1fr 80px 70px;
     gap: 10px;
     padding: 8px 6px;
     border-bottom: 1px solid #1a2035;
@@ -240,7 +240,7 @@
 
   .feed-header {
     display: grid;
-    grid-template-columns: 70px 80px 160px 1fr 80px;
+    grid-template-columns: 70px 80px 160px 1fr 80px 70px;
     gap: 10px;
     padding: 0 6px 8px;
     font-size: 10px;
@@ -325,6 +325,23 @@
     50%  { transform: scale(1.5); opacity: 0.6; }
     100% { transform: scale(1);   opacity: 1; }
   }
+
+  /* ---- action buttons (clear / resolve) ---- */
+  .action-btn {
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: 'Segoe UI', monospace;
+    letter-spacing: 0.5px;
+    padding: 3px 10px;
+    text-transform: uppercase;
+    transition: opacity 0.2s;
+  }
+  .action-btn:hover { opacity: 0.8; }
+  .danger-btn  { background: #3d0f14; color: #ff4757; border: 1px solid #ff4757; }
+  .resolve-btn { background: #0d2b1a; color: #2ed573; border: 1px solid #2ed573; font-size: 9px; padding: 2px 7px; }
+  .alert-row.resolved { opacity: 0.35; text-decoration: line-through; }
 </style>
 </head>
 <body>
@@ -393,13 +410,17 @@
 
 <!-- alert feed -->
 <div class="panel">
-  <h2>Live Alert Feed</h2>
+  <h2 style="display:flex;align-items:center;justify-content:space-between;">
+    Live Alert Feed
+    <button class="action-btn danger-btn" onclick="clearAlerts()">Clear All</button>
+  </h2>
   <div class="feed-header">
     <span>Severity</span>
     <span>MITRE</span>
     <span>Alert Type</span>
     <span>Source IP</span>
     <span>Time</span>
+    <span></span>
   </div>
   <div id="alert-feed"><div class="no-data">Waiting for alerts...</div></div>
 </div>
@@ -522,14 +543,15 @@
       newAlerts.forEach(a => {
         const sev = a.severity || "LOW";
         const row = document.createElement("div");
-        // add flash class for HIGH/MEDIUM so they glow on arrival
         row.className = "alert-row" + (sev !== "LOW" ? ` sev-flash-${sev}` : "");
+        row.dataset.ts = a.ts;
         row.innerHTML = `
           <span><span class="sev-badge sev-${sev}">${sev}</span></span>
           <span class="alert-mitre">${a.mitre_technique || "—"}</span>
           <span class="alert-type">${(a.alert_type || "").replace(/_/g, " ")}</span>
           <span class="alert-src">${a.src_ip || "—"} → ${a.dst_ip || "—"}${a.dst_port ? ":" + a.dst_port : ""}</span>
           <span class="alert-time">${a.time_fmt || "—"}</span>
+          <span><button class="action-btn resolve-btn" onclick="resolveAlert(this, ${a.ts})">Resolve</button></span>
         `;
         feed.insertBefore(row, feed.firstChild);
       });
@@ -621,6 +643,22 @@
       const res = await fetch("/api/geo");
       const attackers = await res.json();
 
+      const activeIPs = new Set(attackers.map(a => a.ip));
+
+      // remove markers/lines for IPs no longer in geo data
+      for (const key of Object.keys(mapMarkers)) {
+        if (!activeIPs.has(key)) {
+          map.removeLayer(mapMarkers[key]);
+          delete mapMarkers[key];
+        }
+      }
+      for (const key of Object.keys(mapLines)) {
+        if (!activeIPs.has(key)) {
+          map.removeLayer(mapLines[key]);
+          delete mapLines[key];
+        }
+      }
+
       attackers.forEach(a => {
         const color = SEV_COLORS_MAP[a.severity] || "#2ed573";
         const key = a.ip;
@@ -640,7 +678,6 @@
           mapMarkers[key] = marker;
         }
 
-        // animated line from attacker to center of map
         if (!mapLines[key]) {
           const line = L.polyline([[a.lat, a.lon], [20, 0]], {
             color: color,
@@ -652,6 +689,38 @@
         }
       });
     } catch (e) { console.error("map error", e); }
+  }
+
+  // ---- resolve a single alert ----
+  async function resolveAlert(btn, ts) {
+    btn.disabled = true;
+    btn.textContent = "...";
+    try {
+      await fetch("/api/alerts/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ts }),
+      });
+      const row = btn.closest(".alert-row");
+      row.style.transition = "opacity 0.4s";
+      row.style.opacity = "0";
+      setTimeout(() => row.remove(), 400);
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = "Resolve";
+    }
+  }
+
+  // ---- clear all alerts ----
+  async function clearAlerts() {
+    if (!confirm("Clear all alerts? This cannot be undone.")) return;
+    try {
+      await fetch("/api/alerts", { method: "DELETE" });
+      document.getElementById("alert-feed").innerHTML = '<div class="no-data">Waiting for alerts...</div>';
+      knownIds = new Set();
+      refreshMap();
+      tick();
+    } catch (e) { console.error("clear error", e); }
   }
 
   // ---- boot ----

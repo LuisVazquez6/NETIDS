@@ -80,9 +80,9 @@ sleep 2
 # -----------------------------------------------------------------------------
 # 5. ARP Spoofing — SKIPPED (disrupts VirtualBox network stack)
 # -----------------------------------------------------------------------------
-banner "Stage 5/8 — ARP Spoofing (SKIPPED)"
-step "ARP flood skipped — disrupts VirtualBox network interface."
-sleep 1
+#banner "Stage 5/8 — ARP Spoofing (SKIPPED)"
+#step "ARP flood skipped — disrupts VirtualBox network interface."
+#sleep 1
 
 # -----------------------------------------------------------------------------
 # 6. DNS Tunneling — real Kali IP (dig needs real source for UDP response)

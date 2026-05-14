@@ -133,10 +133,54 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/alerts", methods=["DELETE"])
+@login_required
+def clear_alerts():
+    try:
+        ALERTS_PATH.write_text("", encoding="utf-8")
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/alerts/resolve", methods=["POST"])
+@login_required
+def resolve_alert():
+    data = request.get_json(silent=True) or {}
+    try:
+        ts = float(data.get("ts"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "ts required"}), 400
+
+    if not ALERTS_PATH.exists():
+        return jsonify({"ok": True, "updated": False})
+
+    lines = ALERTS_PATH.read_text(encoding="utf-8").splitlines()
+    new_lines = []
+    updated = False
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if not obj.get("resolved") and float(obj.get("ts", -1)) == ts:
+                obj["resolved"] = True
+                updated = True
+                new_lines.append(json.dumps(obj))
+                continue
+        except Exception:
+            pass
+        new_lines.append(line)
+
+    ALERTS_PATH.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+    return jsonify({"ok": True, "updated": updated})
+
+
 @app.route("/api/alerts")
 @login_required
 def api_alerts():
-    alerts = read_alerts()
+    alerts = [a for a in read_alerts() if not a.get("resolved")]
 
     # Optional filters via query params: ?severity=HIGH&type=PORT_SCAN_SUSPECTED&src=1.2.3.4&limit=200
     sev_filter = request.args.get("severity", "").upper()
